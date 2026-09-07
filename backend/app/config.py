@@ -12,7 +12,7 @@ if root_env.exists():
     load_dotenv(dotenv_path=root_env)
 
 class Settings(BaseModel):
-    APP_NAME: str = "Superjoin Fact Knowledge Layer"
+    APP_NAME: str = "Veritas Fact Knowledge Layer"
     APP_VERSION: str = "1.0.0"
     HOST: str = os.getenv("HOST", "127.0.0.1")
     PORT: int = int(os.getenv("PORT", 8000))

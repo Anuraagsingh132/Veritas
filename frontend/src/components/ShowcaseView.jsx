@@ -83,8 +83,8 @@ export default function ShowcaseView({ cases, loading }) {
               The Four Mandatory Evaluation Cases
             </h1>
             <p className="text-slate-400 text-xs sm:text-sm leading-relaxed text-pretty">
-              The Superjoin assignment specifies four foundational epistemological cases for cross-document fact validation.
-              Below is the verified evidence, grounding quotes, and chain-of-thought reasoning discovered from the starter datasets.
+              The Veritas Fact Knowledge Layer extracts, grounds, and cross-reconciles facts across multi-source document corpuses.
+              Below is the verified evidence, grounding quotes, and chain-of-thought reasoning discovered from the filings.
             </p>
           </div>
           

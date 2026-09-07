@@ -200,16 +200,16 @@ export default function App() {
       <footer className="border-t border-slate-800/60 py-6 text-xs text-slate-500 bg-slate-950/40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2.5">
           <div className="flex items-center space-x-2">
-            <span className="font-semibold text-slate-400">Superjoin Knowledge Layer</span>
+            <span className="font-semibold text-slate-300">Veritas Epistemic Engine</span>
             <span>•</span>
-            <span>VIT 2026 Engineering Assignment</span>
+            <span>Autonomous Cross-Document Ground Truth & Spatial Verification</span>
           </div>
           <div className="flex items-center space-x-3 text-[11px] text-slate-500">
-            <span>FastAPI</span>
+            <span>FastAPI Core</span>
             <span>•</span>
-            <span>PyMuPDF</span>
+            <span>PyMuPDF Spatial Bounding</span>
             <span>•</span>
-            <span>Groq LLaMA 3.3</span>
+            <span>Groq Qwen 27B</span>
             <span>•</span>
             <span>React & Tailwind v4</span>
           </div>

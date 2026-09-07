@@ -27,16 +27,16 @@ export default function Navbar({
             onClick={() => setActiveTab('showcase')}
             className="flex items-center space-x-3 text-left group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-xl p-1 -m-1 transition-all"
           >
-            <div className="h-9 w-9 rounded-xl bg-slate-900 border border-slate-700/80 flex items-center justify-center text-indigo-400 group-hover:border-indigo-500/60 group-hover:text-indigo-300 transition-colors shadow-sm">
+            <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-indigo-950 via-slate-900 to-cyan-950 border border-indigo-500/40 flex items-center justify-center text-cyan-400 group-hover:border-indigo-400 group-hover:text-cyan-300 transition-colors shadow-sm">
               <Layers className="h-4.5 w-4.5" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <span className="font-semibold text-base text-slate-100 group-hover:text-white transition-colors tracking-tight">
-                  Superjoin
+                <span className="font-bold text-base text-slate-100 group-hover:text-white transition-colors tracking-tight">
+                  Veritas
                 </span>
-                <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-800/80 border border-slate-700/70 text-slate-300 font-medium tracking-wide whitespace-nowrap hidden sm:inline-flex">
-                  Knowledge Layer
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-950/80 border border-indigo-700/60 text-indigo-300 font-medium tracking-wide whitespace-nowrap hidden sm:inline-flex">
+                  Fact Knowledge Layer
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 hidden md:block">
