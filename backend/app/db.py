@@ -1,5 +1,6 @@
 import sqlite3
 import json
+import hashlib
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -139,6 +140,35 @@ def init_db():
     cursor.execute("DELETE FROM relationships WHERE doc_id_1 NOT IN (SELECT id FROM documents) OR doc_id_2 NOT IN (SELECT id FROM documents);")
     cursor.execute("DELETE FROM facts WHERE document_id NOT IN (SELECT id FROM documents);")
     cursor.execute("DELETE FROM document_pages WHERE document_id NOT IN (SELECT id FROM documents);")
+
+    # Deduplicate relationships, normalize canonical order, and ensure unique index on (fact_id_1, fact_id_2)
+    try:
+        cursor.execute("""
+            UPDATE relationships
+            SET fact_id_1 = fact_id_2,
+                fact_id_2 = fact_id_1,
+                doc_id_1 = doc_id_2,
+                doc_id_2 = doc_id_1
+            WHERE fact_id_1 > fact_id_2;
+        """)
+        cursor.execute("""
+            DELETE FROM relationships
+            WHERE rowid NOT IN (
+                SELECT MIN(rowid)
+                FROM relationships
+                GROUP BY fact_id_1, fact_id_2
+            );
+        """)
+        cursor.execute("SELECT rowid, fact_id_1, fact_id_2 FROM relationships;")
+        rel_rows = cursor.fetchall()
+        for r in rel_rows:
+            pair_str = f"{r['fact_id_1']}:{r['fact_id_2']}"
+            det_id = f"rel-{hashlib.sha256(pair_str.encode('utf-8')).hexdigest()[:12]}"
+            cursor.execute("UPDATE relationships SET id = ? WHERE rowid = ?", (det_id, r["rowid"]))
+
+        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_fact_pair ON relationships(fact_id_1, fact_id_2);")
+    except Exception as e:
+        logger.debug(f"Relationships unique index migration skipped/handled: {e}")
 
     conn.commit()
     conn.close()

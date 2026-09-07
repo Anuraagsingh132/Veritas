@@ -1,5 +1,6 @@
 import re
 import uuid
+import hashlib
 import logging
 from typing import List, Dict, Any, Optional, Tuple, Set
 from app.services.llm_client import LLMClient
@@ -52,6 +53,14 @@ class FactReconciler:
     def __init__(self, llm_client: Optional[LLMClient] = None, max_candidates: int = 20):
         self.llm = llm_client or LLMClient()
         self.max_candidates = max_candidates
+
+    @staticmethod
+    def generate_relationship_id(fact_id_1: str, fact_id_2: str) -> str:
+        """Deterministically generates relationship ID based on canonically sorted fact IDs."""
+        sorted_pair = sorted([str(fact_id_1), str(fact_id_2)])
+        pair_str = f"{sorted_pair[0]}:{sorted_pair[1]}"
+        digest = hashlib.sha256(pair_str.encode("utf-8")).hexdigest()[:12]
+        return f"rel-{digest}"
 
     def reconcile_facts(
         self,
@@ -122,7 +131,8 @@ class FactReconciler:
 
                 score = self._compute_similarity(fa, fb)
                 if score > 0.15:  # Sufficient semantic overlap
-                    scored_pairs.append((score, fa, fb))
+                    first, second = (fa, fb) if fa["id"] < fb["id"] else (fb, fa)
+                    scored_pairs.append((score, first, second))
 
         # Sort by similarity score descending and cap at max_candidates
         scored_pairs.sort(key=lambda x: x[0], reverse=True)
@@ -157,6 +167,11 @@ class FactReconciler:
 
     def _compare_pair_llm(self, fa: Dict[str, Any], fb: Dict[str, Any]) -> Dict[str, Any]:
         """Classifies relationship using LLM."""
+        if fa["id"] > fb["id"]:
+            fa, fb = fb, fa
+
+        rel_id = self.generate_relationship_id(fa["id"], fb["id"])
+
         prompt = (
             f"Fact 1 (from doc {fa.get('document_id')}):\n"
             f"Subject: {fa.get('subject')}\n"
@@ -176,7 +191,7 @@ class FactReconciler:
         res = self.llm.chat_json(RECONCILIATION_SYSTEM_PROMPT, prompt)
         
         return {
-            "id": f"rel-{uuid.uuid4().hex[:10]}",
+            "id": rel_id,
             "fact_id_1": fa["id"],
             "fact_id_2": fb["id"],
             "doc_id_1": fa["document_id"],
@@ -207,6 +222,11 @@ class FactReconciler:
         - Differing values + distinct time periods/units/scopes -> Contextual Reconciliation
         - Conflicting values + identical time period & scope -> Genuine Contradiction
         """
+        if fa["id"] > fb["id"]:
+            fa, fb = fb, fa
+
+        rel_id = self.generate_relationship_id(fa["id"], fb["id"])
+
         val_a = str(fa.get("value", "")).strip().replace(",", "")
         val_b = str(fb.get("value", "")).strip().replace(",", "")
         temp_a = str(fa.get("temporal_context", "")).strip().lower()
@@ -220,7 +240,7 @@ class FactReconciler:
         if fa.get("is_failure_example") or fb.get("is_failure_example"):
             failure_fact = fa if fa.get("is_failure_example") else fb
             return {
-                "id": f"rel-{uuid.uuid4().hex[:10]}",
+                "id": rel_id,
                 "fact_id_1": fa["id"],
                 "fact_id_2": fb["id"],
                 "doc_id_1": fa["document_id"],
@@ -238,7 +258,7 @@ class FactReconciler:
             num_b = float(val_b)
             if abs(num_a - num_b) < 1e-5 or (max(num_a, num_b) > 0 and abs(num_a - num_b) / max(num_a, num_b) < 0.01):
                 return {
-                    "id": f"rel-{uuid.uuid4().hex[:10]}",
+                    "id": rel_id,
                     "fact_id_1": fa["id"],
                     "fact_id_2": fb["id"],
                     "doc_id_1": fa["document_id"],
@@ -252,7 +272,7 @@ class FactReconciler:
         except (ValueError, TypeError):
             if val_a and val_a == val_b:
                 return {
-                    "id": f"rel-{uuid.uuid4().hex[:10]}",
+                    "id": rel_id,
                     "fact_id_1": fa["id"],
                     "fact_id_2": fb["id"],
                     "doc_id_1": fa["document_id"],
@@ -267,7 +287,7 @@ class FactReconciler:
         # Case 3: Contextual Reconciliation via Temporal Difference
         if temp_a and temp_b and temp_a != temp_b:
             return {
-                "id": f"rel-{uuid.uuid4().hex[:10]}",
+                "id": rel_id,
                 "fact_id_1": fa["id"],
                 "fact_id_2": fb["id"],
                 "doc_id_1": fa["document_id"],
@@ -283,7 +303,7 @@ class FactReconciler:
         if (unit_a and unit_b and unit_a != unit_b) or (scope_a and scope_b and scope_a != scope_b):
             dim = "units" if (unit_a != unit_b) else "scope"
             return {
-                "id": f"rel-{uuid.uuid4().hex[:10]}",
+                "id": rel_id,
                 "fact_id_1": fa["id"],
                 "fact_id_2": fb["id"],
                 "doc_id_1": fa["document_id"],
@@ -298,7 +318,7 @@ class FactReconciler:
         # Case 2: Genuine Contradiction (conflicting values for same temporal period and scope)
         if val_a != val_b and (not temp_a or not temp_b or temp_a == temp_b):
             return {
-                "id": f"rel-{uuid.uuid4().hex[:10]}",
+                "id": rel_id,
                 "fact_id_1": fa["id"],
                 "fact_id_2": fb["id"],
                 "doc_id_1": fa["document_id"],
