@@ -29,7 +29,7 @@ class Settings(BaseModel):
     DB_PATH: Path = DATA_DIR / "knowledge_layer.db"
     
     # Processing parameters (Brownie Points: large PDF handling)
-    MAX_PAGES_DEFAULT: int = int(os.getenv("MAX_PAGES_PER_DOC", 100))
+    MAX_PAGES_DEFAULT: int = int(os.getenv("MAX_PAGES_PER_DOC", 15))
     PAGES_PER_CHUNK: int = int(os.getenv("BATCH_PAGES_PER_CHUNK", 3))
 
 settings = Settings()

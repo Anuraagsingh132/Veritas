@@ -48,7 +48,7 @@ class LLMClient:
 
     def _init_client(self):
         try:
-            self._client = Groq(api_key=self.api_key)
+            self._client = Groq(api_key=self.api_key, max_retries=0)
             self._discover_models()
             logger.info(f"Groq client initialized: primary='{self.model}', fallback='{self.fallback_model}'")
         except Exception as e:
