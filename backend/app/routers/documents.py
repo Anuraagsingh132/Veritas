@@ -95,9 +95,18 @@ async def upload_document(
     upload_path = settings.UPLOAD_DIR / f"{doc_id}_{safe_filename}"
     
     total_size = 0
+    is_first_chunk = True
     try:
         with open(upload_path, "wb") as buffer:
             while chunk := await file.read(1024 * 1024):  # 1MB chunks
+                if is_first_chunk:
+                    is_first_chunk = False
+                    if not chunk.startswith(b"%PDF-"):
+                        buffer.close()
+                        if upload_path.exists():
+                            upload_path.unlink()
+                        raise HTTPException(status_code=400, detail="Invalid file content: Not a valid PDF document (missing %PDF- signature).")
+
                 total_size += len(chunk)
                 if total_size > MAX_FILE_SIZE:
                     buffer.close()

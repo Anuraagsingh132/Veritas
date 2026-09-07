@@ -97,6 +97,8 @@ The system automatically extracts, grounds, and reasons over the **four mandator
    ```bash
    cd backend
    python main.py
+   # On Windows systems where 'python' triggers the Microsoft Store alias:
+   # py -3.12 main.py   (or & "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe" main.py)
    ```
 
 5. **Access the Interface:**

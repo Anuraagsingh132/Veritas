@@ -86,8 +86,9 @@ class FactExtractor:
                 if table_md:
                     user_prompt += f"[Detected Tables on Page (Structure Preserved)]:\n{table_md}\n\n"
                 
-                # Use strict content boundaries to prevent prompt injection
-                user_prompt += f"<<<DOCUMENT_PAGE_CONTENT>>>\n{page_text[:4000]}\n<<<END_DOCUMENT_PAGE_CONTENT>>>"
+                # Use strict content boundaries and escape delimiter collisions to prevent prompt injection
+                safe_page_text = page_text[:4000].replace("<<<", "&lt;&lt;&lt;").replace(">>>", "&gt;&gt;&gt;")
+                user_prompt += f"<<<DOCUMENT_PAGE_CONTENT>>>\n{safe_page_text}\n<<<END_DOCUMENT_PAGE_CONTENT>>>"
                 
                 response = self.llm.chat_json(FACT_EXTRACTION_SYSTEM_PROMPT, user_prompt)
                 raw_facts = response.get("facts", [])
@@ -172,17 +173,23 @@ class FactExtractor:
         entity resolution and stop-word unit sanitization.
         """
         facts = []
-        sentences = re.split(r'(?<=[.!?])\s+', page_text)
+        raw_chunks = re.split(r'(?:(?<=[.!?])\s+|\n{2,})', page_text)
+        sentences = [c.strip() for c in raw_chunks if c.strip()]
         
         INVALID_UNITS = {
             "was", "were", "is", "are", "the", "of", "in", "to", "for", "and", "a", "an",
             "at", "by", "from", "on", "with", "as", "or", "than", "over", "under", "per",
-            "its", "it", "our", "their", "this", "that", "these", "those"
+            "its", "it", "our", "their", "this", "that", "these", "those",
+            "annual", "report", "section", "definitions", "summary", "overview", "contents",
+            "page", "pages", "table", "exhibit", "note", "notes", "statement", "financial",
+            "annexure", "disclaimer", "limited", "company", "group", "standalone", "consolidated",
+            "corporate", "statutory", "reports", "governance", "committee", "director", "directors",
+            "board", "management", "discussion", "analysis"
         }
 
         for sentence in sentences:
             sentence_clean = sentence.strip()
-            if len(sentence_clean) < 20 or len(sentence_clean) > 300:
+            if len(sentence_clean) < 15 or len(sentence_clean) > 800:
                 continue
 
             # Generic quantity matcher: currency symbol or number followed by optional unit word or %
@@ -199,9 +206,9 @@ class FactExtractor:
                     continue
                 val_str = val_match.group(0).replace(',', '')
 
-                # Check preceding text for fiscal year or quarter prefixes (e.g. FY24, Q3)
+                # Check preceding text for fiscal year, quarter, page or section prefixes
                 preceding = sentence_clean[:m.start()].strip()
-                if re.search(r'\b(?:FY|Q|quarter|fiscal\s*year)\s*$', preceding, re.IGNORECASE):
+                if re.search(r'\b(?:FY|Q|quarter|fiscal\s*year|page|p\.|pg\.|section|sec\.|item|exhibit)\s*$', preceding, re.IGNORECASE):
                     continue
 
                 # Extract unit
@@ -211,7 +218,7 @@ class FactExtractor:
                 elif "$" in token:
                     unit_str = "USD " + unit_str.replace('$', '').strip()
 
-                # Clean stop words from units
+                # Clean stop words and structural keywords from units
                 if unit_str.lower().strip() in INVALID_UNITS:
                     unit_str = ""
 
@@ -221,14 +228,32 @@ class FactExtractor:
                 ]:
                     continue
 
-                # Infer subject from preceding words in sentence
+                has_symbol = any(sym in token for sym in ["$", "€", "£", "₹", "%"])
+                # Discard bare numbers that lack any currency or percent symbol and lack a valid unit
+                if not has_symbol and not unit_str:
+                    continue
+
+                # Infer subject from preceding words in sentence, or following words if preceding is empty (slide title layout)
                 preceding_clean = re.sub(r'[\(\[\{,;:]+$', '', preceding).strip()
                 words = re.findall(r'[A-Za-z0-9\'-]+', preceding_clean)
-                raw_subject = " ".join(words[-4:]) if words else "Quantitative Statement"
+                if words:
+                    raw_subject = " ".join(words[-4:])
+                else:
+                    following = sentence_clean[m.end():].strip()
+                    following_clean = re.sub(r'^[\s\n\(\[\{,;:]+', '', following)
+                    f_words = re.findall(r'[A-Za-z0-9\'-]+', following_clean)
+                    raw_subject = " ".join(f_words[:4]) if f_words else "Quantitative Statement"
+
                 # Strip leading prepositions/verbs
                 subject_str = re.sub(r'^(?:of|in|to|for|by|from|was|were|is|are|increased|decreased|recorded|reported|reached|stood at)\s+', '', raw_subject, flags=re.IGNORECASE).strip()
                 if not subject_str:
                     subject_str = "Reported Metric"
+
+                # Discard bare page numbers / header artifacts with generic subjects
+                if not has_symbol and not unit_str and subject_str in ["Quantitative Statement", "Reported Metric"]:
+                    continue
+                if not has_symbol and subject_str in ["Quantitative Statement", "Reported Metric"] and val_str.isdigit() and int(val_str) <= 300:
+                    continue
 
                 # Infer entity
                 entity_name = self._infer_entity(subject_str, filename, sentence_clean)

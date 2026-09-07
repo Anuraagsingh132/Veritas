@@ -19,8 +19,8 @@ class Settings(BaseModel):
     
     # LLM Settings
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-    DEFAULT_MODEL: str = os.getenv("LLM_MODEL", "groq/compound-mini")
-    FALLBACK_MODEL: str = os.getenv("LLM_FALLBACK_MODEL", "groq/compound")
+    DEFAULT_MODEL: str = os.getenv("LLM_MODEL", "qwen/qwen3.8-27b")
+    FALLBACK_MODEL: str = os.getenv("LLM_FALLBACK_MODEL", "qwen/qwen3.6-27b")
     
     # Storage Paths
     BASE_DIR: Path = Path(__file__).resolve().parent.parent

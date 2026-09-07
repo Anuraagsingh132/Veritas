@@ -10,14 +10,14 @@ logger = logging.getLogger(__name__)
 
 # Preferred model discovery order for Groq API
 PREFERRED_MODELS = [
+    "qwen/qwen3.8-27b",
+    "qwen/qwen3.6-27b",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
     "groq/compound-mini",
     "groq/compound",
     "openai/gpt-oss-120b",
-    "openai/gpt-oss-20b",
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "qwen/qwen3.8-27b",
-    "qwen/qwen3.6-27b"
+    "openai/gpt-oss-20b"
 ]
 
 class LLMClient:
@@ -96,7 +96,7 @@ class LLMClient:
     def is_available(self) -> bool:
         return self._client is not None
 
-    def chat_json(self, system_prompt: str, user_prompt: str, max_tokens: int = 4096, temperature: float = 0.1) -> Dict[str, Any]:
+    def chat_json(self, system_prompt: str, user_prompt: str, max_tokens: int = 1000, temperature: float = 0.1) -> Dict[str, Any]:
         """
         Calls LLM expecting structured JSON response.
         Implements fail-fast rate-limit protection and multi-model fallback.

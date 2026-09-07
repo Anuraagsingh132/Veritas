@@ -21,19 +21,27 @@ def test_pipeline_ingest():
     
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, subject, value, unit, exact_quote, bbox FROM facts WHERE document_id = 'test-doc-delhivery-q4'")
-    facts = cursor.fetchall()
-    print(f"[OK] Total facts stored for test document: {len(facts)}")
-    assert len(facts) > 0, "Pipeline failed to extract facts from test document"
-    
-    for f in facts[:3]:
-        safe_subject = str(f["subject"]).encode('ascii', 'replace').decode('ascii')
-        print(f"     * Fact: {safe_subject} = {f['value']} {f['unit']}")
-        print(f"       Quote: \"{f['exact_quote'][:60].encode('ascii', 'replace').decode('ascii')}...\"")
-        print(f"       Bbox: {f['bbox']}")
+    try:
+        cursor.execute("SELECT id, subject, value, unit, exact_quote, bbox FROM facts WHERE document_id = 'test-doc-delhivery-q4'")
+        facts = cursor.fetchall()
+        print(f"[OK] Total facts stored for test document: {len(facts)}")
+        assert len(facts) > 0, "Pipeline failed to extract facts from test document"
+        
+        for f in facts[:3]:
+            safe_subject = str(f["subject"]).encode('ascii', 'replace').decode('ascii')
+            print(f"     * Fact: {safe_subject} = {f['value']} {f['unit']}")
+            print(f"       Quote: \"{f['exact_quote'][:60].encode('ascii', 'replace').decode('ascii')}...\"")
+            print(f"       Bbox: {f['bbox']}")
+    finally:
+        # Isolated teardown: clean up test document and all cascaded records
+        cursor.execute("DELETE FROM relationships WHERE doc_id_1 = 'test-doc-delhivery-q4' OR doc_id_2 = 'test-doc-delhivery-q4'")
+        cursor.execute("DELETE FROM facts WHERE document_id = 'test-doc-delhivery-q4'")
+        cursor.execute("DELETE FROM document_pages WHERE document_id = 'test-doc-delhivery-q4'")
+        cursor.execute("DELETE FROM documents WHERE id = 'test-doc-delhivery-q4'")
+        conn.commit()
+        conn.close()
 
-    conn.close()
-    print("[OK] Pipeline end-to-end test PASSED successfully!")
+    print("[OK] Pipeline end-to-end test PASSED successfully with clean teardown!")
 
 if __name__ == "__main__":
     test_pipeline_ingest()

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Navbar from './components/Navbar';
 import ShowcaseView from './components/ShowcaseView';
 import FactExplorer from './components/FactExplorer';
@@ -42,7 +42,7 @@ export default function App() {
   });
 
   // Load all initial data
-  const loadAllData = async () => {
+  const loadAllData = useCallback(async () => {
     setLoading(true);
     try {
       const [statsData, statusData, casesData, factsData, relsData, docsData] = await Promise.all([
@@ -65,11 +65,11 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadAllData();
-  }, []);
+  }, [loadAllData]);
 
   // Scroll to top cleanly when switching tabs
   useEffect(() => {

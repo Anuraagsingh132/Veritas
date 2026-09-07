@@ -45,7 +45,9 @@ Format your response as a JSON object:
 
 STOP_WORDS = {
     "the", "and", "of", "in", "to", "for", "a", "an", "is", "was", "by", "on", "at",
-    "from", "as", "with", "that", "this", "it", "are", "were", "be", "or", "total"
+    "from", "as", "with", "that", "this", "it", "are", "were", "be", "or", "total",
+    "statement", "quantitative", "reported", "metric", "annual", "report", "section",
+    "definitions", "summary", "page", "pages"
 }
 
 def normalize_numeric_value_and_unit(val_str: Any, unit_str: Any) -> Tuple[Optional[float], str]:
@@ -186,6 +188,12 @@ class FactReconciler:
                 if cat_a and cat_b and cat_a != cat_b and cat_a != "quantitative" and cat_b != "quantitative":
                     continue
 
+                # Filter out generic fallback subjects to prevent header/footer noise pairings
+                sub_a = str(fa.get("subject", "")).strip()
+                sub_b = str(fb.get("subject", "")).strip()
+                if sub_a in ["Quantitative Statement", "Reported Metric"] or sub_b in ["Quantitative Statement", "Reported Metric"]:
+                    continue
+
                 score = self._compute_similarity(fa, fb)
                 if score > 0.20:  # Sufficient semantic and entity overlap
                     first, second = (fa, fb) if fa["id"] < fb["id"] else (fb, fa)
@@ -264,7 +272,7 @@ class FactReconciler:
             f"Scope: {fb.get('scope_context')}\n"
             f"Quote: \"{fb.get('exact_quote')}\""
         )
-        res = self.llm.chat_json(RECONCILIATION_SYSTEM_PROMPT, prompt)
+        res = self.llm.chat_json(RECONCILIATION_SYSTEM_PROMPT, prompt, max_tokens=500)
         rel_type = res.get("relationship_type", "contextual_reconciliation")
         if rel_type == "unrelated":
             return None
@@ -438,29 +446,63 @@ class FactReconciler:
 
         # Case 3: Contextual Reconciliation via Unit Difference
         if unit_a and unit_b and norm_unit_a != norm_unit_b:
-            return {
-                "id": rel_id,
-                "fact_id_1": fa["id"],
-                "fact_id_2": fb["id"],
-                "doc_id_1": fa["document_id"],
-                "doc_id_2": fb["document_id"],
-                "relationship_type": "contextual_reconciliation",
-                "confidence": 0.90,
-                "reasoning": f"Apparent conflict is resolved by unit differences: Document A reports in {fa.get('unit', '')} whereas Document B reports in {fb.get('unit', '')}.",
-                "context_difference": "units",
-                "case_category": "case_3_contextual"
-            }
+            # Only reconcile if both units belong to the same physical dimension
+            is_curr_a = any(c in norm_unit_a for c in ["crore", "million", "usd", "inr", "$", "₹"])
+            is_curr_b = any(c in norm_unit_b for c in ["crore", "million", "usd", "inr", "$", "₹"])
+            is_pct_a = any(p in norm_unit_a for p in ["%", "percent", "percentage", "bps"])
+            is_pct_b = any(p in norm_unit_b for p in ["%", "percent", "percentage", "bps"])
+            is_vol_a = any(v in norm_unit_a for v in ["kg", "ton", "units", "parcels", "employees"])
+            is_vol_b = any(v in norm_unit_b for v in ["kg", "ton", "units", "parcels", "employees"])
+
+            same_dimension = (is_curr_a and is_curr_b) or (is_pct_a and is_pct_b) or (is_vol_a and is_vol_b)
+            if same_dimension:
+                return {
+                    "id": rel_id,
+                    "fact_id_1": fa["id"],
+                    "fact_id_2": fb["id"],
+                    "doc_id_1": fa["document_id"],
+                    "doc_id_2": fb["document_id"],
+                    "relationship_type": "contextual_reconciliation",
+                    "confidence": 0.90,
+                    "reasoning": f"Apparent conflict is resolved by unit scale differences: Document A reports in {fa.get('unit', '')} whereas Document B reports in {fb.get('unit', '')}.",
+                    "context_difference": "units",
+                    "case_category": "case_3_contextual"
+                }
 
         # Case 2: Genuine Contradiction (conflicting values for same subject, metric & scope)
+        sub_a = str(fa.get("subject", "")).strip()
+        sub_b = str(fb.get("subject", "")).strip()
+
+        # Reject contradictions on generic subjects
+        if sub_a in ["Quantitative Statement", "Reported Metric"] or sub_b in ["Quantitative Statement", "Reported Metric"]:
+            return None
+
+        # Dimensional unit check for contradiction: units must not be across incompatible dimensions
+        if unit_a and unit_b:
+            is_curr_a = any(c in norm_unit_a for c in ["crore", "million", "usd", "inr", "$", "₹"])
+            is_curr_b = any(c in norm_unit_b for c in ["crore", "million", "usd", "inr", "$", "₹"])
+            is_pct_a = any(p in norm_unit_a for p in ["%", "percent", "percentage", "bps"])
+            is_pct_b = any(p in norm_unit_b for p in ["%", "percent", "percentage", "bps"])
+            if (is_curr_a != is_curr_b) or (is_pct_a != is_pct_b):
+                return None
+
         pred_a = str(fa.get("predicate", "")).lower().strip()
         pred_b = str(fb.get("predicate", "")).lower().strip()
         cat_a = str(fa.get("category", "")).lower().strip()
         cat_b = str(fb.get("category", "")).lower().strip()
 
-        predicates_compatible = (pred_a == pred_b) or \
-            (any(w in pred_a for w in ["revenue", "sales"]) and any(w in pred_b for w in ["revenue", "sales"])) or \
-            (any(w in pred_a for w in ["gdp", "growth"]) and any(w in pred_b for w in ["gdp", "growth"])) or \
-            (pred_a == "stated_value" and pred_b == "stated_value")
+        # Subject lexical overlap check
+        tokens_sa = {w for w in re.findall(r'\b[a-z]{3,}\b', sub_a.lower()) if w not in STOP_WORDS}
+        tokens_sb = {w for w in re.findall(r'\b[a-z]{3,}\b', sub_b.lower()) if w not in STOP_WORDS}
+        subject_overlap = (len(tokens_sa.intersection(tokens_sb)) / len(tokens_sa.union(tokens_sb))) if (tokens_sa and tokens_sb) else 0.0
+
+        if pred_a == "stated_value" and pred_b == "stated_value":
+            predicates_compatible = (subject_overlap >= 0.40)
+        else:
+            predicates_compatible = (pred_a == pred_b) or \
+                (any(w in pred_a for w in ["revenue", "sales"]) and any(w in pred_b for w in ["revenue", "sales"])) or \
+                (any(w in pred_a for w in ["gdp", "growth"]) and any(w in pred_b for w in ["gdp", "growth"])) or \
+                (subject_overlap >= 0.40)
 
         categories_compatible = (cat_a == cat_b) or cat_a == "quantitative" or cat_b == "quantitative"
         both_numeric = (num_a is not None and num_b is not None)
