@@ -1,16 +1,28 @@
-import React, { useState } from 'react';
-import { Key, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Key, X, Eye, EyeOff, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function ApiKeyModal({ isOpen, onClose, onSaveKey, currentStatus }) {
   const [apiKey, setApiKey] = useState('');
+  const [showKey, setShowKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
+
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
   const handleSave = async () => {
     if (!apiKey.trim()) {
-      setMessage({ type: 'error', text: 'Please enter a valid API key string.' });
+      setMessage({ type: 'error', text: 'Please enter a valid Groq API key (starts with gsk_).' });
       return;
     }
 
@@ -30,77 +42,107 @@ export default function ApiKeyModal({ isOpen, onClose, onSaveKey, currentStatus 
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-800 max-w-md w-full rounded-2xl p-6 shadow-2xl space-y-4">
+    <div 
+      className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="api-key-modal-title"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-slate-900 border border-slate-800 max-w-md w-full rounded-2xl p-6 shadow-2xl space-y-4"
+        onClick={(e) => e.stopPropagation()}
+      >
         
         <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-          <div className="flex items-center space-x-2">
-            <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400">
+          <div className="flex items-center space-x-2.5">
+            <div className="p-2 rounded-xl bg-slate-800 text-indigo-400 border border-slate-700">
               <Key className="h-4 w-4" />
             </div>
-            <h3 className="text-sm font-bold text-white">Configure Groq API Key</h3>
+            <h3 id="api-key-modal-title" className="text-sm font-semibold text-white">
+              Configure Groq API Key
+            </h3>
           </div>
           <button 
             onClick={onClose}
-            className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+            aria-label="Close modal"
+            className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors focus-visible:ring-2 focus-visible:ring-indigo-500"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <p className="text-xs text-slate-400 leading-relaxed">
-          Provide your Groq API key to power live fact extraction and dynamic reconciliation using <span className="text-indigo-400 font-mono">llama-3.3-70b-versatile</span>.
+        <p className="text-xs text-slate-400 leading-relaxed text-pretty">
+          Power real-time cross-document fact extraction and reconciliation using <span className="text-slate-200 font-mono">llama-3.3-70b-versatile</span> on Groq's high-speed inference engine.
         </p>
 
-        <div>
-          <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-            Groq API Key:
+        <div className="space-y-1.5">
+          <label htmlFor="groq-api-key-input" className="text-xs font-semibold text-slate-300 block">
+            Groq API Key
           </label>
-          <input
-            type="password"
-            placeholder="gsk_..."
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"
-          />
+          <div className="relative">
+            <input
+              id="groq-api-key-input"
+              type={showKey ? 'text' : 'password'}
+              placeholder="gsk_..."
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              className="w-full pl-3.5 pr-10 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:border-indigo-500 font-mono transition-colors"
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey(!showKey)}
+              aria-label={showKey ? 'Hide API key' : 'Show API key'}
+              className="absolute right-3 top-2.5 p-1 text-slate-400 hover:text-white transition-colors"
+            >
+              {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
         </div>
 
         {message && (
-          <div className={`text-xs p-2.5 rounded-lg border ${
+          <div className={`text-xs p-3 rounded-xl border flex items-center space-x-2 ${
             message.type === 'success' 
-              ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300' 
-              : 'bg-rose-950/60 border-rose-500/40 text-rose-300'
+              ? 'bg-emerald-950/60 border-emerald-500/30 text-emerald-300' 
+              : 'bg-rose-950/60 border-rose-500/30 text-rose-300'
           }`}>
-            {message.text}
+            {message.type === 'success' ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 flex-shrink-0" /> : <AlertCircle className="h-3.5 w-3.5 text-rose-400 flex-shrink-0" />}
+            <span>{message.text}</span>
           </div>
         )}
 
-        <div className="bg-slate-950 p-3 rounded-xl border border-slate-800/80 text-[11px] text-slate-400 space-y-1">
-          <div className="flex justify-between">
+        <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800/80 text-[11px] text-slate-400 space-y-1.5">
+          <div className="flex justify-between items-center">
             <span>Current Status:</span>
-            <span className={currentStatus?.llm_available ? 'text-emerald-400 font-semibold' : 'text-amber-400'}>
-              {currentStatus?.llm_available ? 'Active' : 'Offline / Starter Knowledge Mode'}
+            <span className={`px-2 py-0.5 rounded-md font-medium text-[10px] border ${
+              currentStatus?.llm_available 
+                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
+                : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+            }`}>
+              {currentStatus?.llm_available ? 'Active & Ready' : 'Offline / Curated Fallback'}
             </span>
           </div>
-          <div className="flex justify-between">
-            <span>Active Model:</span>
+          <div className="flex justify-between items-center">
+            <span>Model:</span>
             <span className="font-mono text-slate-300">{currentStatus?.model || 'llama-3.3-70b-versatile'}</span>
           </div>
         </div>
 
-        <div className="flex items-center justify-end space-x-2 pt-2">
+        <div className="flex items-center justify-end space-x-2.5 pt-2">
           <button
+            type="button"
             onClick={onClose}
-            className="px-3.5 py-2 text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-xl transition"
+            className="px-3.5 py-2 text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-xl transition-colors"
           >
             Cancel
           </button>
           <button
+            type="button"
             onClick={handleSave}
             disabled={saving}
-            className="px-4 py-2 text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow transition disabled:opacity-50 flex items-center space-x-1.5"
+            className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl shadow-sm transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-indigo-500"
           >
-            {saving ? <span>Saving...</span> : <span>Activate Key</span>}
+            {saving ? 'Saving...' : 'Activate Key'}
           </button>
         </div>
 

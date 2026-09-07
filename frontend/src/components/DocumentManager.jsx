@@ -3,8 +3,11 @@ import {
   UploadCloud, 
   FileText, 
   Trash2, 
-  RefreshCw
+  RefreshCw,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
+import { DocumentListSkeleton } from './SkeletonLoader';
 
 export default function DocumentManager({ 
   documents, 
@@ -44,19 +47,19 @@ export default function DocumentManager({
   const handleFiles = async (files) => {
     const file = files[0];
     if (!file.name.toLowerCase().endsWith('.pdf')) {
-      alert('Please upload a valid PDF file.');
+      setUploadStatus({ type: 'error', text: 'Only PDF documents are supported for fact extraction.' });
       return;
     }
 
     setUploading(true);
-    setUploadStatus(`Uploading & ingesting ${file.name}...`);
+    setUploadStatus({ type: 'info', text: `Ingesting "${file.name}" through PyMuPDF & LLM pipeline...` });
 
     try {
       await onUploadSuccess(file);
-      setUploadStatus(`Successfully processed ${file.name}! Facts and relationships extracted.`);
+      setUploadStatus({ type: 'success', text: `Successfully processed "${file.name}"! Facts and relationships extracted.` });
       setTimeout(() => setUploadStatus(null), 5000);
     } catch (err) {
-      setUploadStatus(`Upload failed: ${err.message}`);
+      setUploadStatus({ type: 'error', text: `Upload failed: ${err.message}` });
     } finally {
       setUploading(false);
     }
@@ -79,10 +82,10 @@ export default function DocumentManager({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
-        className={`border-2 border-dashed rounded-2xl p-8 sm:p-12 text-center cursor-pointer transition-all duration-200 ${
+        className={`border-2 border-dashed rounded-2xl p-8 sm:p-12 text-center cursor-pointer transition-colors ${
           isDragging 
-            ? 'border-indigo-400 bg-indigo-950/40 shadow-xl' 
-            : 'border-slate-800 bg-slate-900/60 hover:border-slate-700 hover:bg-slate-900'
+            ? 'border-indigo-500 bg-indigo-950/20 shadow-lg' 
+            : 'border-slate-800 bg-slate-900/50 hover:border-slate-700 hover:bg-slate-900/80'
         }`}
       >
         <input 
@@ -94,40 +97,49 @@ export default function DocumentManager({
         />
         
         <div className="flex flex-col items-center justify-center space-y-3">
-          <div className="p-4 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400">
-            <UploadCloud className="h-8 w-8 animate-bounce" />
+          <div className="p-3.5 rounded-2xl bg-slate-800/80 border border-slate-700 text-indigo-400">
+            <UploadCloud className="h-7 w-7" />
           </div>
-          <div>
-            <h3 className="text-base font-semibold text-white">
-              {uploading ? 'Processing PDF Document...' : 'Upload Any New PDF Document'}
+          <div className="space-y-1">
+            <h3 className="text-sm sm:text-base font-semibold text-slate-100">
+              {uploading ? 'Ingesting PDF Document...' : 'Upload Ground-Truth PDF Document'}
             </h3>
-            <p className="text-xs text-slate-400 mt-1 max-w-md">
-              Drag and drop your PDF here, or click to browse. The pipeline extracts text, discovers numerical and semantic facts, and reconciles against the knowledge layer.
+            <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed text-pretty">
+              Drag and drop your PDF here, or click to browse. The pipeline performs text extraction, coordinate bounding, fact discovery, and cross-document reconciliation.
             </p>
           </div>
 
           {uploadStatus && (
-            <div className="mt-2 text-xs font-medium px-3 py-1.5 rounded-lg bg-indigo-950 border border-indigo-500/40 text-indigo-300">
-              {uploadStatus}
+            <div className={`mt-2 text-xs font-medium px-3.5 py-2 rounded-xl border flex items-center space-x-2 ${
+              uploadStatus.type === 'error'
+                ? 'bg-rose-950/60 border-rose-500/30 text-rose-300'
+                : uploadStatus.type === 'success'
+                  ? 'bg-emerald-950/60 border-emerald-500/30 text-emerald-300'
+                  : 'bg-slate-950 border-slate-800 text-slate-300'
+            }`}>
+              {uploadStatus.type === 'success' && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 flex-shrink-0" />}
+              {uploadStatus.type === 'error' && <AlertCircle className="h-3.5 w-3.5 text-rose-400 flex-shrink-0" />}
+              <span>{uploadStatus.text}</span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Documents List */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-lg space-y-4">
+      {/* Registered Documents List */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2.5">
             <FileText className="h-5 w-5 text-indigo-400" />
-            <h2 className="text-base font-bold text-white">Registered PDF Documents</h2>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-mono">
+            <h2 className="text-sm sm:text-base font-semibold text-slate-100">Registered PDF Sources</h2>
+            <span className="text-xs px-2 py-0.5 rounded-md bg-slate-950 border border-slate-800 text-slate-300 font-mono tabular-nums">
               {documents?.length || 0}
             </span>
           </div>
 
           <button
             onClick={onRefresh}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+            aria-label="Refresh document status"
+            className="p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 border border-transparent hover:border-slate-700 transition-colors focus-visible:ring-2 focus-visible:ring-indigo-500"
             title="Refresh document status"
           >
             <RefreshCw className="h-4 w-4" />
@@ -135,46 +147,46 @@ export default function DocumentManager({
         </div>
 
         {loading ? (
-          <div className="flex justify-center py-12 text-slate-400">
-            <div className="animate-spin h-6 w-6 border-2 border-indigo-500 border-t-transparent rounded-full mr-2"></div>
-            <span>Loading documents...</span>
-          </div>
+          <DocumentListSkeleton />
         ) : documents.length === 0 ? (
-          <div className="text-center py-12 text-slate-400 text-sm">
-            No documents currently registered. Upload a PDF above to start.
+          <div className="text-center py-12 text-slate-400 text-xs sm:text-sm">
+            No documents currently registered. Upload a PDF above to begin fact extraction.
           </div>
         ) : (
-          <div className="divide-y divide-slate-800/80">
+          <div className="divide-y divide-slate-800/60">
             {documents.map(doc => (
               <div 
                 key={doc.id}
-                className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-800/20 px-3 rounded-xl transition"
+                className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-800/30 px-3 rounded-xl transition-colors"
               >
-                <div className="flex items-start space-x-3">
-                  <div className="p-2.5 rounded-xl bg-slate-800 text-indigo-400 mt-1 sm:mt-0 flex-shrink-0">
+                <div className="flex items-start space-x-3.5 min-w-0">
+                  <div className="p-2.5 rounded-xl bg-slate-800 text-indigo-400 mt-0.5 sm:mt-0 flex-shrink-0 border border-slate-700/60">
                     <FileText className="h-5 w-5" />
                   </div>
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <h4 className="text-sm font-semibold text-slate-100">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex items-center space-x-2 flex-wrap">
+                      <h4 className="text-xs sm:text-sm font-semibold text-slate-100 truncate max-w-sm" title={doc.filename}>
                         {doc.filename}
                       </h4>
-                      <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${
+                      <span className={`text-[10px] px-2 py-0.5 rounded-md font-medium border flex items-center space-x-1 ${
                         doc.status === 'ready' 
-                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
                           : doc.status === 'processing' 
-                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' 
-                            : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                            ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' 
+                            : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
                       }`}>
-                        {doc.status}
+                        <span className={`h-1.5 w-1.5 rounded-full ${
+                          doc.status === 'ready' ? 'bg-emerald-400' : doc.status === 'processing' ? 'bg-amber-400 animate-ping' : 'bg-rose-400'
+                        }`} />
+                        <span>{doc.status}</span>
                       </span>
                     </div>
 
-                    <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">
+                    <p className="text-xs text-slate-400 line-clamp-1 text-pretty">
                       {doc.summary || 'PDF document ingested into knowledge layer.'}
                     </p>
 
-                    <div className="flex items-center space-x-4 mt-2 text-[11px] text-slate-500 font-mono">
+                    <div className="flex items-center space-x-3 text-[11px] text-slate-400 font-mono tabular-nums">
                       <span>{doc.page_count} pages</span>
                       <span>•</span>
                       <span>{formatFileSize(doc.filesize)}</span>
@@ -184,11 +196,12 @@ export default function DocumentManager({
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-2 self-end sm:self-center">
+                <div className="flex items-center space-x-2 self-end sm:self-center flex-shrink-0">
                   <button
                     onClick={() => onDeleteDocument(doc.id)}
-                    className="p-2 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
-                    title="Remove document"
+                    aria-label={`Remove document ${doc.filename}`}
+                    className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl transition-colors focus-visible:ring-2 focus-visible:ring-rose-500"
+                    title="Remove document and purge facts"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>

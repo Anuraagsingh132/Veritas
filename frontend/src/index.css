@@ -1,23 +1,72 @@
 @import "tailwindcss";
 
 @layer base {
+  :root {
+    --bg-canvas: #090d16;
+    --bg-surface: #0f172a;
+    --bg-surface-elevated: #1e293b;
+    --bg-surface-subtle: #0c1222;
+    --border-subtle: #1e293b;
+    --border-medium: #334155;
+    --accent: #6366f1;
+    --accent-hover: #4f46e5;
+  }
+
   body {
-    @apply bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white;
+    background-color: #090d16;
+    color: #f8fafc;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Accessible focus indicators */
+  :focus-visible {
+    outline: 2px solid #6366f1;
+    outline-offset: 2px;
   }
 }
 
-/* Custom scrollbar */
+/* Tabular numbers for all metric & numeric displays */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Shimmer pulse animation for structural skeleton loaders */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton-pulse {
+  background: linear-gradient(
+    90deg,
+    rgba(30, 41, 59, 0.6) 0%,
+    rgba(51, 65, 85, 0.4) 50%,
+    rgba(30, 41, 59, 0.6) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
+/* Custom minimal scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: #090d16;
 }
 ::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 4px;
+  background: #1e293b;
+  border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: #334155;
 }
+

@@ -5,6 +5,7 @@ import FactExplorer from './components/FactExplorer';
 import ReconciliationMatrix from './components/ReconciliationMatrix';
 import DocumentManager from './components/DocumentManager';
 import ApiKeyModal from './components/ApiKeyModal';
+import AlertDialog from './components/AlertDialog';
 import { 
   getStats, 
   getStatus, 
@@ -29,6 +30,16 @@ export default function App() {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [keyModalOpen, setKeyModalOpen] = useState(false);
+
+  // Accessible alert dialog state
+  const [alertDialog, setAlertDialog] = useState({
+    isOpen: false,
+    title: '',
+    description: '',
+    confirmLabel: 'Confirm',
+    intent: 'danger',
+    onConfirm: () => {},
+  });
 
   // Load all initial data
   const loadAllData = async () => {
@@ -62,15 +73,41 @@ export default function App() {
 
   const handleUpload = async (file) => {
     await uploadDocument(file);
-    // Refresh data after brief processing
-    setTimeout(loadAllData, 3000);
+    setTimeout(loadAllData, 2500);
   };
 
-  const handleDelete = async (docId) => {
-    if (confirm('Are you sure you want to remove this document and its associated facts?')) {
-      await deleteDocument(docId);
-      loadAllData();
-    }
+  // Replace raw window.confirm with accessible AlertDialog
+  const handleDeleteRequest = (docId) => {
+    const doc = documents.find(d => d.id === docId);
+    const filename = doc ? doc.filename : 'this document';
+    
+    setAlertDialog({
+      isOpen: true,
+      title: 'Remove Document & Extracted Facts',
+      description: `Are you sure you want to remove "${filename}"? All associated ground-truth facts and cross-document reconciliation links will be purged from the knowledge layer.`,
+      confirmLabel: 'Delete Document',
+      intent: 'danger',
+      onConfirm: async () => {
+        setAlertDialog(prev => ({ ...prev, isOpen: false }));
+        await deleteDocument(docId);
+        loadAllData();
+      },
+    });
+  };
+
+  const handleReseedRequest = () => {
+    setAlertDialog({
+      isOpen: true,
+      title: 'Reset to Ground-Truth Dataset',
+      description: 'This will reset the entire knowledge layer back to the curated 4 mandatory evaluation cases and starter PDFs. Any custom uploaded documents will be cleared.',
+      confirmLabel: 'Reset Knowledge Layer',
+      intent: 'warning',
+      onConfirm: async () => {
+        setAlertDialog(prev => ({ ...prev, isOpen: false }));
+        await reseedData();
+        loadAllData();
+      },
+    });
   };
 
   const handleTriggerReconcile = async () => {
@@ -84,15 +121,8 @@ export default function App() {
     setStatus(updatedStatus);
   };
 
-  const handleReseed = async () => {
-    if (confirm('Reset knowledge layer to curated ground-truth starter dataset?')) {
-      await reseedData();
-      loadAllData();
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+    <div className="min-h-dvh bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500/30 selection:text-indigo-200">
       
       {/* Top Navbar */}
       <Navbar 
@@ -101,10 +131,10 @@ export default function App() {
         stats={stats}
         status={status}
         onOpenKeyModal={() => setKeyModalOpen(true)}
-        onReseed={handleReseed}
+        onReseed={handleReseedRequest}
       />
 
-      {/* Main Content Area */}
+      {/* Main Content Surface */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === 'showcase' && (
           <ShowcaseView cases={showcaseCases} loading={loading} />
@@ -127,17 +157,29 @@ export default function App() {
             documents={documents} 
             loading={loading}
             onUploadSuccess={handleUpload}
-            onDeleteDocument={handleDelete}
+            onDeleteDocument={handleDeleteRequest}
             onRefresh={loadAllData}
           />
         )}
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-900 py-6 text-center text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>Superjoin · Fact Knowledge Layer · VIT 2026</span>
-          <span>PyMuPDF • Groq LLM • FastAPI • React</span>
+      <footer className="border-t border-slate-800/60 py-6 text-xs text-slate-500 bg-slate-950/40">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2.5">
+          <div className="flex items-center space-x-2">
+            <span className="font-semibold text-slate-400">Superjoin Knowledge Layer</span>
+            <span>•</span>
+            <span>VIT 2026 Engineering Assignment</span>
+          </div>
+          <div className="flex items-center space-x-3 text-[11px] text-slate-500">
+            <span>FastAPI</span>
+            <span>•</span>
+            <span>PyMuPDF</span>
+            <span>•</span>
+            <span>Groq LLaMA 3.3</span>
+            <span>•</span>
+            <span>React & Tailwind v4</span>
+          </div>
         </div>
       </footer>
 
@@ -147,6 +189,17 @@ export default function App() {
         onClose={() => setKeyModalOpen(false)}
         onSaveKey={handleSaveKey}
         currentStatus={status}
+      />
+
+      {/* Accessible Alert Dialog */}
+      <AlertDialog 
+        isOpen={alertDialog.isOpen}
+        title={alertDialog.title}
+        description={alertDialog.description}
+        confirmLabel={alertDialog.confirmLabel}
+        intent={alertDialog.intent}
+        onConfirm={alertDialog.onConfirm}
+        onCancel={() => setAlertDialog(prev => ({ ...prev, isOpen: false }))}
       />
 
     </div>
