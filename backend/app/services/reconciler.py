@@ -1,32 +1,32 @@
 import re
 import uuid
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Set
 from app.services.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
 RECONCILIATION_SYSTEM_PROMPT = """You are an expert Fact Reconciliation & Epistemology Engine.
-Your role is to compare two facts extracted from different documents and classify their relationship with rigorous reasoning.
+Your role is to compare two facts extracted from different documents and classify their epistemological relationship with rigorous reasoning.
 
 Classification Rules:
 1. CORROBORATION (Case 1):
-   - Both facts affirm the exact same truth, even if phrased differently or formatted with minor stylistic differences.
-   - Example: Document A reports 'Delhivery Revenue for FY24: ₹8,142 Cr' and Document B reports 'FY24 Total Income: ₹81,420 Million' (after unit conversion) or reports the exact same ₹8,142 Cr in an earnings presentation.
+   - Both facts independently affirm the exact same reality, even if expressed with different phrasing, rounding, or formatting.
+   - Example: Document A reports Delhivery FY24 revenue of ₹8,141.66 Cr, and Document B corroborates this as ₹8,142 Cr in presentation highlights.
 
 2. GENUINE_CONTRADICTION (Case 2):
-   - The facts make fundamentally conflicting claims about the SAME entity, for the SAME time horizon, with the SAME scope. They cannot both be true under the same definition.
-   - Example: RBI forecasts India's FY26 Real GDP growth at 7.4%, whereas the IMF Article IV report projects 6.6% for the same fiscal year. Different institutions with competing models and incompatible baseline figures.
+   - The facts make fundamentally conflicting claims about the SAME subject, for the SAME time horizon, under the SAME scope. They cannot both be true under the same definition.
+   - Example: RBI projects India's FY26 GDP growth at 7.4%, whereas IMF Article IV projects 6.6% for the same fiscal year. Competing baseline models and divergent forecasts.
 
 3. CONTEXTUAL_RECONCILIATION (Case 3):
-   - The facts appear contradictory at face value, but the discrepancy is completely explained by context such as:
-     a) Temporal difference: Document A discusses FY22 or founding year, Document B discusses FY24.
-     b) Scope difference: Consolidated vs Standalone, or Advance Estimate vs Provisional Estimate.
-     c) Unit/scale difference: Millions vs Crores vs Percent.
-     d) Legal vs Colloquial: Founding in 'May 2011' vs legal incorporation on 'June 22, 2011'.
+   - The facts appear contradictory or divergent at face value, but the discrepancy is completely explained by context:
+     a) Temporal difference (e.g., FY22 baseline vs FY24 outcome, or founding month vs legal incorporation date).
+     b) Scope difference (e.g., Consolidated vs Standalone, or Advance Estimate vs Provisional).
+     c) Unit/scale difference (e.g., Millions vs Crores).
+     d) Legal vs Operational definition (e.g., Company conceptual founding vs statutory incorporation on certificate).
 
 4. EXTRACTION_FAILURE (Case 4):
-   - The discrepancy or anomaly is due to a PDF parsing glitch, multi-column table header misattribution, or OCR error, rather than document reality.
+   - The anomaly or discrepancy arose from a PDF layout artifact, multi-column table transposition, or header alignment error.
 
 Format your response as a JSON object:
 {
@@ -34,25 +34,36 @@ Format your response as a JSON object:
   "confidence": 0.95,
   "case_category": "case_1_corroboration | case_2_contradiction | case_3_contextual | case_4_failure",
   "context_difference": "temporal | scope | units | methodology | none",
-  "reasoning": "Clear, detailed multi-sentence explanation of why these facts corroborate, contradict, or reconcile."
+  "reasoning": "Clear, rigorous multi-sentence explanation of why these two facts corroborate, contradict, or reconcile."
 }
 """
+
+STOP_WORDS = {
+    "the", "and", "of", "in", "to", "for", "a", "an", "is", "was", "by", "on", "at",
+    "from", "as", "with", "that", "this", "it", "are", "were", "be", "or", "total"
+}
 
 class FactReconciler:
     """
     Cross-document reasoning engine that clusters related facts,
     evaluates relationships, and documents grounded reasoning.
+    Limits candidate pairs to top-K to ensure scalability and avoid Groq rate limits.
     """
-    def __init__(self, llm_client: Optional[LLMClient] = None):
+    def __init__(self, llm_client: Optional[LLMClient] = None, max_candidates: int = 40):
         self.llm = llm_client or LLMClient()
+        self.max_candidates = max_candidates
 
-    def reconcile_facts(self, existing_facts: List[Dict[str, Any]], new_facts: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    def reconcile_facts(
+        self,
+        existing_facts: List[Dict[str, Any]],
+        new_facts: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
         """
         Performs pairwise cross-document reconciliation.
-        If new_facts is provided, performs incremental reconciliation (Brownie points: incremental processing).
+        If new_facts is provided, performs incremental reconciliation.
         """
-        all_facts = existing_facts + (new_facts or [])
         candidate_pairs = self._find_candidate_pairs(existing_facts, new_facts)
+        logger.info(f"Reconciling {len(candidate_pairs)} candidate fact pairs.")
         
         relationships = []
         for fact_a, fact_b in candidate_pairs:
@@ -62,29 +73,30 @@ class FactReconciler:
                 
         return relationships
 
-    def _find_candidate_pairs(self, existing_facts: List[Dict[str, Any]], new_facts: Optional[List[Dict[str, Any]]] = None) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    def _find_candidate_pairs(
+        self,
+        existing_facts: List[Dict[str, Any]],
+        new_facts: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
         """
-        Identifies pairs of facts from different documents that share thematic or lexical overlap.
+        Identifies candidate fact pairs from DIFFERENT documents that share semantic overlap.
+        Uses Jaccard token similarity and category matching, capped at top-K candidates.
         """
-        pairs = []
-        
+        scored_pairs = []
+        seen_pairs: Set[Tuple[str, str]] = set()
+
         if new_facts is not None:
-            # Incremental: Only compare new facts against existing facts
-            target_list_a = new_facts
-            target_list_b = existing_facts
+            list_a = new_facts
+            list_b = existing_facts
         else:
-            # Full reconciliation across all facts
-            target_list_a = existing_facts
-            target_list_b = existing_facts
+            list_a = existing_facts
+            list_b = existing_facts
 
-        seen_pairs = set()
-
-        for i, fa in enumerate(target_list_a):
-            start_j = 0 if new_facts is not None else i + 1
-            for j in range(start_j, len(target_list_b)):
-                fb = target_list_b[j]
-                
-                # Must be from different documents
+        for fa in list_a:
+            for fb in list_b:
+                if fa["id"] == fb["id"]:
+                    continue
+                # Only compare facts from DIFFERENT documents
                 if fa.get("document_id") == fb.get("document_id"):
                     continue
 
@@ -93,47 +105,46 @@ class FactReconciler:
                     continue
                 seen_pairs.add(pair_key)
 
-                # Check thematic relevance
-                if self._are_thematically_related(fa, fb):
-                    pairs.append((fa, fb))
+                score = self._compute_similarity(fa, fb)
+                if score > 0.15:  # Sufficient semantic overlap
+                    scored_pairs.append((score, fa, fb))
 
-        return pairs
+        # Sort by similarity score descending and cap at max_candidates
+        scored_pairs.sort(key=lambda x: x[0], reverse=True)
+        return [(fa, fb) for _, fa, fb in scored_pairs[:self.max_candidates]]
 
-    def _are_thematically_related(self, fa: Dict[str, Any], fb: Dict[str, Any]) -> bool:
+    def _compute_similarity(self, fa: Dict[str, Any], fb: Dict[str, Any]) -> float:
         """
-        Heuristic filter to check if two facts could corroborate or contradict.
+        Calculates token Jaccard similarity between two facts across subject, predicate, and quotes.
         """
-        # Category match
-        if fa.get("category") == fb.get("category"):
-            # Check subject token overlap
-            words_a = set(re.findall(r'\w+', (fa.get("subject", "") + " " + fa.get("predicate", "")).lower()))
-            words_b = set(re.findall(r'\w+', (fb.get("subject", "") + " " + fb.get("predicate", "")).lower()))
-            common = words_a.intersection(words_b)
-            # Remove generic stop words
-            common = {w for w in common if w not in {"the", "and", "of", "in", "to", "for", "india", "delhivery", "limited"}}
-            if len(common) >= 1:
-                return True
+        text_a = f"{fa.get('subject', '')} {fa.get('predicate', '')} {fa.get('category', '')}".lower()
+        text_b = f"{fb.get('subject', '')} {fb.get('predicate', '')} {fb.get('category', '')}".lower()
 
-        # Special check for GDP / Growth
-        sub_a = (fa.get("subject", "") + " " + fa.get("predicate", "")).lower()
-        sub_b = (fb.get("subject", "") + " " + fb.get("predicate", "")).lower()
-        if ("gdp" in sub_a or "growth" in sub_a) and ("gdp" in sub_b or "growth" in sub_b):
-            return True
+        tokens_a = {w for w in re.findall(r'\b[a-z]{3,}\b', text_a) if w not in STOP_WORDS}
+        tokens_b = {w for w in re.findall(r'\b[a-z]{3,}\b', text_b) if w not in STOP_WORDS}
 
-        # Special check for Revenue / Financials
-        if ("revenue" in sub_a or "income" in sub_a) and ("revenue" in sub_b or "income" in sub_b):
-            return True
+        if not tokens_a or not tokens_b:
+            return 0.0
 
-        # Special check for founding / incorporation / CIN
-        if ("found" in sub_a or "incorporat" in sub_a or "inception" in sub_a) and ("found" in sub_b or "incorporat" in sub_b or "inception" in sub_b):
-            return True
+        intersection = len(tokens_a.intersection(tokens_b))
+        union = len(tokens_a.union(tokens_b))
+        jaccard = intersection / union if union > 0 else 0.0
 
-        return False
+        # Category bonus
+        if fa.get("category") == fb.get("category") and fa.get("category"):
+            jaccard += 0.2
+
+        # Temporal match bonus
+        if fa.get("temporal_context") and fa.get("temporal_context") == fb.get("temporal_context"):
+            jaccard += 0.25
+
+        return jaccard
 
     def _compare_pair(self, fa: Dict[str, Any], fb: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
-        Uses LLM (or heuristic reasoning if LLM is offline) to classify the relationship between two facts.
+        Classifies relationship using LLM (if available) or domain-agnostic epistemological rules.
         """
+        # 1. LLM-based classification
         if self.llm.is_available():
             try:
                 prompt = (
@@ -162,19 +173,22 @@ class FactReconciler:
                     "doc_id_2": fb["document_id"],
                     "relationship_type": res.get("relationship_type", "contextual_reconciliation"),
                     "confidence": float(res.get("confidence", 0.9)),
-                    "reasoning": res.get("reasoning", "Semantic comparison conducted."),
+                    "reasoning": res.get("reasoning", "Semantic analysis across independent documents."),
                     "context_difference": res.get("context_difference", ""),
-                    "case_category": res.get("case_category", "case_3_contextual")
+                    "case_category": res.get("case_category", "")
                 }
             except Exception as e:
-                logger.warning(f"LLM reconciliation failed for {fa['id']} vs {fb['id']}: {e}")
+                logger.warning(f"LLM reconciliation call failed: {e}. Falling back to rule-based reconciliation.")
 
-        # Fallback: Structural Rule-based Reconciliation
+        # 2. Domain-Agnostic Heuristic Reconciliation
         return self._heuristic_reconcile(fa, fb)
 
     def _heuristic_reconcile(self, fa: Dict[str, Any], fb: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
-        Determines relationship type based on value alignment and context differences.
+        Rigorous, domain-agnostic epistemological rules that work across any topic:
+        - Exact numeric/semantic match -> Corroboration
+        - Differing values + distinct time periods/units/scopes -> Contextual Reconciliation
+        - Conflicting values + identical time period & scope -> Genuine Contradiction
         """
         val_a = str(fa.get("value", "")).strip().replace(",", "")
         val_b = str(fb.get("value", "")).strip().replace(",", "")
@@ -182,23 +196,58 @@ class FactReconciler:
         temp_b = str(fb.get("temporal_context", "")).strip().lower()
         unit_a = str(fa.get("unit", "")).strip().lower()
         unit_b = str(fb.get("unit", "")).strip().lower()
+        scope_a = str(fa.get("scope_context", "")).strip().lower()
+        scope_b = str(fb.get("scope_context", "")).strip().lower()
 
-        # Check for Case 1: Direct Corroboration
-        if val_a == val_b and val_a:
+        # Check for Extraction Failure flag (Case 4)
+        if fa.get("is_failure_example") or fb.get("is_failure_example"):
+            failure_fact = fa if fa.get("is_failure_example") else fb
             return {
                 "id": f"rel-{uuid.uuid4().hex[:10]}",
                 "fact_id_1": fa["id"],
                 "fact_id_2": fb["id"],
                 "doc_id_1": fa["document_id"],
                 "doc_id_2": fb["document_id"],
-                "relationship_type": "corroboration",
-                "confidence": 0.96,
-                "reasoning": f"Both documents explicitly report the identical value '{val_a}' for {fa.get('subject')}, corroborating each other across independent sources.",
-                "context_difference": "none",
-                "case_category": "case_1_corroboration"
+                "relationship_type": "extraction_failure",
+                "confidence": 0.88,
+                "reasoning": failure_fact.get("failure_notes") or "Document layout complexity produced parsing divergence.",
+                "context_difference": "methodology",
+                "case_category": "case_4_failure"
             }
 
-        # Check for Case 3: Apparent Contradiction due to Temporal Difference
+        # Case 1: Corroboration (exact value equality, or numeric difference <= 1% due to rounding)
+        try:
+            num_a = float(val_a)
+            num_b = float(val_b)
+            if abs(num_a - num_b) < 1e-5 or (max(num_a, num_b) > 0 and abs(num_a - num_b) / max(num_a, num_b) < 0.01):
+                return {
+                    "id": f"rel-{uuid.uuid4().hex[:10]}",
+                    "fact_id_1": fa["id"],
+                    "fact_id_2": fb["id"],
+                    "doc_id_1": fa["document_id"],
+                    "doc_id_2": fb["document_id"],
+                    "relationship_type": "corroboration",
+                    "confidence": 0.95,
+                    "reasoning": f"Both documents independently affirm the value of {fa.get('subject')} at approximately '{val_a}', confirming ground truth across independent publications.",
+                    "context_difference": "none",
+                    "case_category": "case_1_corroboration"
+                }
+        except (ValueError, TypeError):
+            if val_a and val_a == val_b:
+                return {
+                    "id": f"rel-{uuid.uuid4().hex[:10]}",
+                    "fact_id_1": fa["id"],
+                    "fact_id_2": fb["id"],
+                    "doc_id_1": fa["document_id"],
+                    "doc_id_2": fb["document_id"],
+                    "relationship_type": "corroboration",
+                    "confidence": 0.95,
+                    "reasoning": f"Both sources report the identical assertion '{val_a}' for {fa.get('subject')}.",
+                    "context_difference": "none",
+                    "case_category": "case_1_corroboration"
+                }
+
+        # Case 3: Contextual Reconciliation via Temporal Difference
         if temp_a and temp_b and temp_a != temp_b:
             return {
                 "id": f"rel-{uuid.uuid4().hex[:10]}",
@@ -208,13 +257,14 @@ class FactReconciler:
                 "doc_id_2": fb["document_id"],
                 "relationship_type": "contextual_reconciliation",
                 "confidence": 0.92,
-                "reasoning": f"The apparent numeric divergence between {val_a} ({fa.get('unit', '')}) and {val_b} ({fb.get('unit', '')}) is reconciled by temporal context: Document A measures '{temp_a}' while Document B reflects '{temp_b}'.",
+                "reasoning": f"The divergence between {val_a} ({fa.get('unit', '')}) and {val_b} ({fb.get('unit', '')}) is reconciled by temporal context: Document A measures period '{temp_a}' while Document B reflects '{temp_b}'.",
                 "context_difference": "temporal",
                 "case_category": "case_3_contextual"
             }
 
-        # Check for Case 3: Apparent Contradiction due to Unit Difference
-        if unit_a and unit_b and unit_a != unit_b:
+        # Case 3: Contextual Reconciliation via Unit / Scope Difference
+        if (unit_a and unit_b and unit_a != unit_b) or (scope_a and scope_b and scope_a != scope_b):
+            dim = "units" if (unit_a != unit_b) else "scope"
             return {
                 "id": f"rel-{uuid.uuid4().hex[:10]}",
                 "fact_id_1": fa["id"],
@@ -223,13 +273,13 @@ class FactReconciler:
                 "doc_id_2": fb["document_id"],
                 "relationship_type": "contextual_reconciliation",
                 "confidence": 0.90,
-                "reasoning": f"Values differ in scale/unit representation ({fa.get('unit')} vs {fb.get('unit')}), reconciling once standard accounting denomination is harmonized.",
-                "context_difference": "units",
+                "reasoning": f"Apparent conflict is resolved by differences in reporting {dim}: Document A reports {fa.get('scope_context', '')} in {fa.get('unit', '')} whereas Document B reports {fb.get('scope_context', '')} in {fb.get('unit', '')}.",
+                "context_difference": dim,
                 "case_category": "case_3_contextual"
             }
 
-        # Check for Case 2: Genuine Contradiction (e.g. GDP Projections for same year)
-        if "gdp" in fa.get("subject", "").lower() or "%" in (fa.get("unit", "") + fb.get("unit", "")):
+        # Case 2: Genuine Contradiction (conflicting values for same temporal period and scope)
+        if val_a != val_b and (not temp_a or not temp_b or temp_a == temp_b):
             return {
                 "id": f"rel-{uuid.uuid4().hex[:10]}",
                 "fact_id_1": fa["id"],
@@ -237,8 +287,8 @@ class FactReconciler:
                 "doc_id_1": fa["document_id"],
                 "doc_id_2": fb["document_id"],
                 "relationship_type": "genuine_contradiction",
-                "confidence": 0.94,
-                "reasoning": f"Both documents provide conflicting projections for the exact same macroeconomic indicator ({val_a}% vs {val_b}%). This reflects a genuine difference in institutional forecasting methodology and baseline models.",
+                "confidence": 0.93,
+                "reasoning": f"Conflicting values reported for the same subject ({fa.get('subject')}) under identical scope: Document A reports '{val_a}' while Document B reports '{val_b}'. This reflects genuine empirical or methodological disagreement.",
                 "context_difference": "methodology",
                 "case_category": "case_2_contradiction"
             }

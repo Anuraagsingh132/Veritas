@@ -66,6 +66,7 @@ def init_db():
         confidence REAL DEFAULT 1.0,
         is_failure_example INTEGER DEFAULT 0,
         failure_notes TEXT DEFAULT '',
+        bbox TEXT DEFAULT '[]',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (document_id) REFERENCES documents (id) ON DELETE CASCADE
     );
@@ -104,9 +105,16 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_facts_doc ON facts(document_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_facts_category ON facts(category);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_rel_facts ON relationships(fact_id_1, fact_id_2);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_rel_type ON relationships(relationship_type);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_rel_case ON relationships(case_category);")
-    
+    # Check and migrate bbox column if missing in existing database
+    try:
+        cursor.execute("SELECT bbox FROM facts LIMIT 1;")
+    except sqlite3.OperationalError:
+        try:
+            cursor.execute("ALTER TABLE facts ADD COLUMN bbox TEXT DEFAULT '[]';")
+            logger.info("Migrated facts table: added bbox column.")
+        except Exception as e:
+            logger.debug(f"Column migration skipped: {e}")
+
     conn.commit()
     conn.close()
     logger.info("Database initialized successfully at %s", settings.DB_PATH)

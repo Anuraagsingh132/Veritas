@@ -15,6 +15,7 @@ class FactBase(BaseModel):
     confidence: Optional[float] = 1.0
     is_failure_example: Optional[bool] = False
     failure_notes: Optional[str] = ""
+    bbox: Optional[List[float]] = Field(default_factory=list, description="Spatial coordinates [x0, y0, x1, y1] on page")
 
 class FactCreate(FactBase):
     document_id: str

@@ -1,8 +1,8 @@
-import os
 import uuid
+import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional, List
 from app.config import settings
 from app.db import get_db_connection
 from app.services.pdf_processor import PDFProcessor
@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 class ProcessingPipeline:
     """
     End-to-end ingestion and knowledge graph construction pipeline.
-    Coordinates PDF extraction, fact extraction, persistence, and reconciliation.
+    Coordinates PDF layout extraction, table structuring, fact extraction,
+    persistence, and incremental cross-document reconciliation.
     """
     def __init__(self, llm_client: Optional[LLMClient] = None):
         self.llm = llm_client or shared_llm_client
@@ -23,32 +24,40 @@ class ProcessingPipeline:
         self.fact_extractor = FactExtractor(self.llm)
         self.reconciler = FactReconciler(self.llm)
 
-    def ingest_pdf(self, filepath: str | Path, dataset_tag: str = "uploaded", doc_id: Optional[str] = None) -> Dict[str, Any]:
+    def ingest_pdf(
+        self,
+        filepath: str | Path,
+        dataset_tag: str = "uploaded",
+        doc_id: Optional[str] = None,
+        max_pages: Optional[int] = None,
+        target_pages: Optional[List[int]] = None
+    ) -> Dict[str, Any]:
         """
-        Ingests a PDF, extracts pages & text, extracts facts, persists to DB,
-        and performs incremental reconciliation against all existing facts.
+        Ingests a PDF, extracts layout & tables, extracts facts via LLM or heuristics,
+        persists to SQLite, and incrementally reconciles new facts against the knowledge layer.
         """
         path = Path(filepath)
-        if not path.exists():
-            raise FileNotFoundError(f"File not found: {path}")
-
-        doc_id = doc_id or f"doc-{uuid.uuid4().hex[:8]}"
         filename = path.name
+        doc_id = doc_id or f"doc-{uuid.uuid4().hex[:8]}"
 
         conn = get_db_connection()
         cursor = conn.cursor()
 
         try:
-            # 1. Register document
+            # 1. Register document record
             cursor.execute("""
-                INSERT OR REPLACE INTO documents (id, filename, filepath, filesize, page_count, dataset_tag, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (doc_id, filename, str(path), path.stat().st_size, 0, dataset_tag, "processing"))
+                INSERT OR REPLACE INTO documents (id, filename, filepath, filesize, page_count, dataset_tag, status, summary)
+                VALUES (?, ?, ?, ?, ?, ?, 'processing', 'Extracting pages and detecting tables...')
+            """, (doc_id, filename, str(path), path.stat().st_size if path.exists() else 0, 0, dataset_tag))
             conn.commit()
 
-            # 2. Extract PDF layout and text
+            # 2. Extract layout, text, tables, and bounding boxes
             logger.info(f"Extracting PDF: {filename}...")
-            doc_data = self.pdf_processor.extract_document(path)
+            if max_pages:
+                custom_processor = PDFProcessor(max_pages=max_pages)
+                doc_data = custom_processor.extract_document(path)
+            else:
+                doc_data = self.pdf_processor.extract_document(path)
             
             cursor.execute("""
                 UPDATE documents SET page_count = ?, filesize = ? WHERE id = ?
@@ -60,31 +69,43 @@ class ProcessingPipeline:
             for p in doc_data["pages"]:
                 p_num = p["page_number"]
                 p_text = p["text"]
+
+                # If target_pages filter is specified, only process those pages
+                if target_pages and p_num not in target_pages:
+                    continue
                 
                 cursor.execute("""
                     INSERT OR REPLACE INTO document_pages (id, document_id, page_number, text_content, char_count, table_count)
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, (f"{doc_id}-p{p_num}", doc_id, p_num, p_text, p["char_count"], p["table_count"]))
                 
-                # Extract facts if page has substantive text
-                if len(p_text.strip()) > 60:
-                    page_facts = self.fact_extractor.extract_from_page(doc_id, p_num, p_text, filename)
+                # Extract facts if page has substantive text or tables
+                if len(p_text.strip()) > 50 or p["tables"]:
+                    page_facts = self.fact_extractor.extract_from_page(
+                        doc_id=doc_id,
+                        page_number=p_num,
+                        page_text=p_text,
+                        tables=p["tables"],
+                        blocks=p["blocks"],
+                        filename=filename
+                    )
                     all_new_facts.extend(page_facts)
 
-            # 4. Save extracted facts into DB
+            # 4. Save extracted facts into DB with bounding box visual grounding
             for f in all_new_facts:
+                bbox_json = json.dumps(f.get("bbox", []))
                 cursor.execute("""
                     INSERT OR REPLACE INTO facts (
                         id, document_id, page_number, category, subject, predicate, value, unit,
                         temporal_context, scope_context, exact_quote, char_offset_start, char_offset_end,
-                        confidence, is_failure_example, failure_notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        confidence, is_failure_example, failure_notes, bbox
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     f["id"], f["document_id"], f["page_number"], f["category"], f["subject"],
                     f["predicate"], f["value"], f.get("unit", ""), f.get("temporal_context", ""),
                     f.get("scope_context", ""), f["exact_quote"], f.get("char_offset_start", 0),
                     f.get("char_offset_end", 0), f.get("confidence", 1.0),
-                    f.get("is_failure_example", 0), f.get("failure_notes", "")
+                    f.get("is_failure_example", 0), f.get("failure_notes", ""), bbox_json
                 ))
             conn.commit()
             logger.info(f"Extracted {len(all_new_facts)} facts from {filename}")
@@ -115,7 +136,7 @@ class ProcessingPipeline:
                 logger.info(f"Identified {len(new_relationships)} new cross-document relationships.")
 
             # 6. Mark document as ready
-            summary = f"Processed {len(doc_data['pages'])} pages. Extracted {len(all_new_facts)} facts and established {len(new_relationships)} relationships."
+            summary = f"Processed {len(doc_data['pages'])} pages. Extracted {len(all_new_facts)} facts and established {len(new_relationships)} cross-document relationships."
             cursor.execute("UPDATE documents SET status = 'ready', summary = ? WHERE id = ?", (summary, doc_id))
             conn.commit()
 

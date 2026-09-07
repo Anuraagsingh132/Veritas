@@ -107,28 +107,32 @@ The system automatically extracts, grounds, and reasons over the **four mandator
 
 ## 💡 Engineering Approach & Design Decisions
 
-### 1. Dynamic Schema (No Fixed Tables)
-Rather than forcing documents into a rigid relational schema (which fails when transitioning from corporate filings to macroeconomic whitepapers), the system models facts as epistemic tuples:
-- **`subject`**: Normalized entity or concept (e.g. `Delhivery FY24 Revenue`, `India Real GDP Growth`)
+### 1. Dynamic Schema & Layout-Aware Extraction
+Rather than forcing documents into a rigid relational schema (which fails when transitioning from corporate filings to macroeconomic whitepapers), the system models facts as epistemic tuples with spatial grounding:
+- **`subject`**: Normalized entity or concept (e.g. `Delhivery FY24 Revenue`, `India Real GDP Growth`, `Emperor penguins dive depth`)
 - **`predicate`**: Semantic attribute (`reported_value`, `projected_growth_rate`, `statutory_incorporation_date`)
 - **`value`** + **`unit`**: The quantitative or qualitative assertion
 - **`temporal_context`**: Precise fiscal year, quarter, or calendar milestone
 - **`scope_context`**: Accounting standard, reporting boundary (Consolidated vs Standalone), or estimation stage (Advance vs Provisional)
 - **`exact_quote`**: Verbatim character sequence from the source document guaranteeing verifiable grounding.
+- **`bbox`**: Spatial bounding box coordinates `[x0, y0, x1, y1]` mapped from PyMuPDF text blocks for visual grounding on the page.
+- **Table Preservation**: Integrated PyMuPDF `page.find_tables()` converts detected table structures into Markdown format with column headers explicitly bound before prompting the LLM, mitigating multi-column header transposition (Case 4).
 
 ### 2. Epistemological Reconciliation (Beyond Graph Visualizations)
-As emphasized in the assignment prompt (*"A graph database or visualization alone is not the solution"*), our reconciliation engine analyzes **why** two facts relate:
+As emphasized in the assignment prompt (*"A graph database or visualization alone is not the solution"*), our reconciliation engine analyzes **why** two facts relate using Jaccard token similarity filtering and LLM/heuristic reasoning:
 - **Corroboration**: Checks semantic alignment across independent reporting formats (e.g. audited 100-page statutory report vs 27-page executive investor presentation).
 - **Genuine Contradictions**: Detects irreconcilable differences where two authoritative institutions forecast the exact same target for the same timeframe under competing models.
 - **Contextual Reconciliations**: Disambiguates apparent conflicts across four axes:
   - *Temporal*: Pre-IPO FY21 revenue (₹4,810 Cr) vs Post-IPO FY24 revenue (₹8,142 Cr).
   - *Scope*: Legal RoC incorporation ("June 22, 2011") vs founder operational inception ("May 2011").
   - *Units*: Crores vs Millions vs Billions.
+- **Dynamic Showcase**: The `/api/showcase` endpoint queries the SQLite `relationships` and `facts` tables dynamically, assembling the 4 required cases from real database records.
 
 ### 3. Brownie Points Addressed
 - **Large PDF Scalability**: Implemented streaming PyMuPDF extraction with memory-efficient page chunking, ensuring 100+ page documents parse in seconds.
-- **Dynamic Schema Evolution**: Schema dynamically infers new fact categories as novel documents are introduced.
+- **Dynamic Schema Evolution**: Schema dynamically infers new fact categories as novel documents are introduced across any domain (tested on biology/science in `test_generalization.py`).
 - **Incremental Reconciliation**: When an evaluator uploads a new PDF, the system only reconciles new facts against the existing knowledge base, rather than recomputing all historical facts.
+- **Adaptive Model Auto-Discovery**: Probes available Groq models (`llama-3.3-70b-versatile`, `llama-3.1-8b-instant`, `qwen/qwen3.8-27b`, `openai/gpt-oss-120b`) dynamically, guaranteeing immediate execution on any evaluator's Groq key without manual configuration.
 
 ---
 
@@ -136,7 +140,7 @@ As emphasized in the assignment prompt (*"A graph database or visualization alon
 
 ### Current Limitations
 1. **Scanned / Image-Only PDFs**: Text extraction currently relies on PDF text streams. Non-searchable scanned PDFs without an OCR layer will yield low character counts.
-2. **Complex Merged Table Cells**: While PyMuPDF's `find_tables()` handles bordered tables cleanly, borderless multi-level spanning tables still present alignment risks (as demonstrated in Case 4).
+2. **Complex Merged Table Cells**: While PyMuPDF's `find_tables()` handles bordered tables cleanly, complex borderless tables with multiple merged spanning cells still present alignment challenges (as highlighted in Case 4).
 
 ### Next Steps & Production Roadmap
 1. **Vision-Language Model (VLM) Table Parser**: Integrate models like ColPali or Gemini Flash Vision for native visual understanding of charts and multi-level tables.

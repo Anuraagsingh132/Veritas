@@ -1,3 +1,4 @@
+import json
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query
 from app.db import get_db_connection
@@ -67,6 +68,7 @@ def list_facts(
             confidence=r["confidence"],
             is_failure_example=bool(r["is_failure_example"]),
             failure_notes=r["failure_notes"] or "",
+            bbox=json.loads(r["bbox"]) if ("bbox" in r.keys() and r["bbox"]) else [],
             created_at=str(r["created_at"])
         ) for r in rows
     ]
