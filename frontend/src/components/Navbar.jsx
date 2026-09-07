@@ -35,11 +35,11 @@ export default function Navbar({
                 <span className="font-semibold text-base text-slate-100 group-hover:text-white transition-colors tracking-tight">
                   Superjoin
                 </span>
-                <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-800/80 border border-slate-700/70 text-slate-300 font-medium tracking-wide">
-                  Fact Knowledge Layer
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-800/80 border border-slate-700/70 text-slate-300 font-medium tracking-wide whitespace-nowrap hidden sm:inline-flex">
+                  Knowledge Layer
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 hidden sm:block">
+              <p className="text-[11px] text-slate-400 hidden md:block">
                 Epistemological Ground-Truth Engine
               </p>
             </div>

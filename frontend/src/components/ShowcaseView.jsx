@@ -26,28 +26,40 @@ export default function ShowcaseView({ cases, loading }) {
     switch (type) {
       case 'corroboration':
         return {
-          label: 'Case 1: Corroborated Fact',
+          label: 'Corroborated Ground Truth',
           badgeClass: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
-          icon: <CheckCircle2 className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+          icon: <CheckCircle2 className="h-4 w-4 text-emerald-400 flex-shrink-0" />,
+          relationText: 'Cross-Doc Equivalence Confirmed',
+          relationSymbol: '=',
+          relationClass: 'text-emerald-400 bg-emerald-950/60 border-emerald-500/30'
         };
       case 'genuine_contradiction':
         return {
-          label: 'Case 2: Genuine Contradiction',
+          label: 'Genuine Contradiction',
           badgeClass: 'bg-rose-500/10 border-rose-500/30 text-rose-400',
-          icon: <AlertTriangle className="h-4 w-4 text-rose-400 flex-shrink-0" />
+          icon: <AlertTriangle className="h-4 w-4 text-rose-400 flex-shrink-0" />,
+          relationText: 'Empirical Discrepancy (80 bps Divergence)',
+          relationSymbol: '≠',
+          relationClass: 'text-rose-400 bg-rose-950/60 border-rose-500/30'
         };
       case 'contextual_reconciliation':
         return {
-          label: 'Case 3: Reconciled by Context',
+          label: 'Reconciled by Context',
           badgeClass: 'bg-amber-500/10 border-amber-500/30 text-amber-400',
-          icon: <Clock className="h-4 w-4 text-amber-400 flex-shrink-0" />
+          icon: <Clock className="h-4 w-4 text-amber-400 flex-shrink-0" />,
+          relationText: 'Harmonized by Temporal & Scope Scope',
+          relationSymbol: '⟷',
+          relationClass: 'text-amber-400 bg-amber-950/60 border-amber-500/30'
         };
       case 'extraction_failure':
       default:
         return {
-          label: 'Case 4: Extraction / Reasoning Failure',
+          label: 'Extraction & Layout Mitigation',
           badgeClass: 'bg-slate-800 border-slate-700 text-slate-300',
-          icon: <HelpCircle className="h-4 w-4 text-slate-400 flex-shrink-0" />
+          icon: <HelpCircle className="h-4 w-4 text-slate-400 flex-shrink-0" />,
+          relationText: 'Coordinate Bounding Guard Active',
+          relationSymbol: '🛡️',
+          relationClass: 'text-indigo-300 bg-indigo-950/60 border-indigo-500/30'
         };
     }
   };
@@ -124,6 +136,17 @@ export default function ShowcaseView({ cases, loading }) {
                   <span className="font-semibold text-slate-200 mr-1.5">Epistemological Significance:</span>
                   <span className="text-slate-400">{c.why_it_matters}</span>
                 </div>
+              </div>
+
+              {/* Comparative Relation Bar */}
+              <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-950/80 border border-slate-800/80 text-xs">
+                <span className="text-[11px] font-medium text-slate-400">
+                  {c.fact_2 ? 'Cross-Document Epistemological Comparison' : 'Automated Coordinate Table Pipeline'}
+                </span>
+                <span className={`inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-md font-mono text-[11px] font-semibold border ${badge.relationClass}`}>
+                  <span>{badge.relationSymbol}</span>
+                  <span>{badge.relationText}</span>
+                </span>
               </div>
 
               {/* Evidence Comparison Grid */}

@@ -71,6 +71,11 @@ export default function App() {
     loadAllData();
   }, []);
 
+  // Scroll to top cleanly when switching tabs
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, [activeTab]);
+
   // Auto-poll real-time progress while any document is in 'processing' state
   useEffect(() => {
     const isProcessing = documents.some(d => d.status === 'processing');
