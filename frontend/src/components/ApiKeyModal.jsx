@@ -1,3 +1,4 @@
+import React, { useState } from 'react';
 import { Key, X } from 'lucide-react';
 
 export default function ApiKeyModal({ isOpen, onClose, onSaveKey, currentStatus }) {
