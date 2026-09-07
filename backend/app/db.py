@@ -135,6 +135,11 @@ def init_db():
             except Exception as e:
                 logger.debug(f"Column migration for {col} skipped: {e}")
 
+    # Purge any orphan records to preserve foreign key integrity
+    cursor.execute("DELETE FROM relationships WHERE doc_id_1 NOT IN (SELECT id FROM documents) OR doc_id_2 NOT IN (SELECT id FROM documents);")
+    cursor.execute("DELETE FROM facts WHERE document_id NOT IN (SELECT id FROM documents);")
+    cursor.execute("DELETE FROM document_pages WHERE document_id NOT IN (SELECT id FROM documents);")
+
     conn.commit()
     conn.close()
     logger.info("Database initialized successfully at %s", settings.DB_PATH)

@@ -134,8 +134,12 @@ class ProcessingPipeline:
             logger.info(f"Extracted {len(all_new_facts)} facts from {filename}")
 
             # 5. Incremental Reconciliation (Brownie point!)
-            # Retrieve existing facts from OTHER documents
-            cursor.execute("SELECT * FROM facts WHERE document_id != ?", (doc_id,))
+            # Retrieve existing facts from OTHER documents that are verified and ready
+            cursor.execute("""
+                SELECT f.* FROM facts f
+                INNER JOIN documents d ON f.document_id = d.id
+                WHERE f.document_id != ? AND d.status = 'ready'
+            """, (doc_id,))
             existing_rows = cursor.fetchall()
             existing_facts = [dict(r) for r in existing_rows]
 
@@ -155,16 +159,19 @@ class ProcessingPipeline:
                 new_relationships = self.reconciler.reconcile_facts(existing_facts, all_new_facts)
                 
                 for rel in new_relationships:
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO relationships (
-                            id, fact_id_1, fact_id_2, doc_id_1, doc_id_2, relationship_type,
-                            confidence, reasoning, context_difference, case_category
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        rel["id"], rel["fact_id_1"], rel["fact_id_2"], rel["doc_id_1"], rel["doc_id_2"],
-                        rel["relationship_type"], rel.get("confidence", 1.0), rel["reasoning"],
-                        rel.get("context_difference", ""), rel.get("case_category", "")
-                    ))
+                    try:
+                        cursor.execute("""
+                            INSERT OR REPLACE INTO relationships (
+                                id, fact_id_1, fact_id_2, doc_id_1, doc_id_2, relationship_type,
+                                confidence, reasoning, context_difference, case_category
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            rel["id"], rel["fact_id_1"], rel["fact_id_2"], rel["doc_id_1"], rel["doc_id_2"],
+                            rel["relationship_type"], rel.get("confidence", 1.0), rel["reasoning"],
+                            rel.get("context_difference", ""), rel.get("case_category", "")
+                        ))
+                    except Exception as rel_err:
+                        logger.warning(f"Skipping relationship insert for {rel.get('id')}: {rel_err}")
                 conn.commit()
                 logger.info(f"Identified {len(new_relationships)} new cross-document relationships.")
 
