@@ -71,9 +71,37 @@ export default function App() {
     loadAllData();
   }, []);
 
+  // Auto-poll real-time progress while any document is in 'processing' state
+  useEffect(() => {
+    const isProcessing = documents.some(d => d.status === 'processing');
+    if (!isProcessing) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const [docsData, statsData, factsData, relsData] = await Promise.all([
+          getDocuments().catch(() => null),
+          getStats().catch(() => null),
+          getFacts().catch(() => null),
+          getReconciliation().catch(() => null)
+        ]);
+
+        if (docsData) setDocuments(docsData);
+        if (statsData) setStats(statsData);
+        if (factsData) setFacts(factsData);
+        if (relsData) setRelationships(relsData);
+      } catch (err) {
+        console.error('Silent progress poll error:', err);
+      }
+    }, 1200);
+
+    return () => clearInterval(interval);
+  }, [documents]);
+
   const handleUpload = async (file) => {
     await uploadDocument(file);
-    setTimeout(loadAllData, 2500);
+    // Refresh immediately so the newly uploaded file appears with its live progress bar
+    const docs = await getDocuments().catch(() => []);
+    setDocuments(docs);
   };
 
   // Replace raw window.confirm with accessible AlertDialog

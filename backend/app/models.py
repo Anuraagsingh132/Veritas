@@ -37,6 +37,10 @@ class DocumentSummary(BaseModel):
     status: str
     summary: str
     fact_count: Optional[int] = 0
+    processed_pages: Optional[int] = 0
+    total_pages: Optional[int] = 0
+    current_step: Optional[str] = ""
+    progress_pct: Optional[int] = 0
     created_at: str
 
 class DocumentDetail(DocumentSummary):

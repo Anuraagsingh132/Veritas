@@ -30,6 +30,10 @@ def init_db():
         dataset_tag TEXT DEFAULT 'uploaded',
         status TEXT DEFAULT 'uploaded',
         summary TEXT DEFAULT '',
+        processed_pages INTEGER DEFAULT 0,
+        total_pages INTEGER DEFAULT 0,
+        current_step TEXT DEFAULT '',
+        progress_pct INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -114,6 +118,22 @@ def init_db():
             logger.info("Migrated facts table: added bbox column.")
         except Exception as e:
             logger.debug(f"Column migration skipped: {e}")
+
+    # Check and migrate progress tracking columns for documents table
+    cursor.execute("PRAGMA table_info(documents);")
+    doc_cols = [c[1] for c in cursor.fetchall()]
+    for col, col_type, default_val in [
+        ("processed_pages", "INTEGER", "0"),
+        ("total_pages", "INTEGER", "0"),
+        ("current_step", "TEXT", "''"),
+        ("progress_pct", "INTEGER", "0")
+    ]:
+        if col not in doc_cols:
+            try:
+                cursor.execute(f"ALTER TABLE documents ADD COLUMN {col} {col_type} DEFAULT {default_val};")
+                logger.info(f"Migrated documents table: added {col} column.")
+            except Exception as e:
+                logger.debug(f"Column migration for {col} skipped: {e}")
 
     conn.commit()
     conn.close()

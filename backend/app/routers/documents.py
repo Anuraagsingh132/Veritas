@@ -21,6 +21,10 @@ def list_documents():
     cursor = conn.cursor()
     cursor.execute("""
         SELECT d.id, d.filename, d.filesize, d.page_count, d.dataset_tag, d.status, d.summary, d.created_at,
+               COALESCE(d.processed_pages, 0) as processed_pages,
+               COALESCE(d.total_pages, 0) as total_pages,
+               COALESCE(d.current_step, '') as current_step,
+               COALESCE(d.progress_pct, 0) as progress_pct,
                COUNT(f.id) as fact_count
         FROM documents d
         LEFT JOIN facts f ON d.id = f.document_id
@@ -40,6 +44,10 @@ def list_documents():
             status=r["status"],
             summary=r["summary"] or "",
             fact_count=r["fact_count"],
+            processed_pages=r["processed_pages"],
+            total_pages=r["total_pages"],
+            current_step=r["current_step"],
+            progress_pct=r["progress_pct"],
             created_at=str(r["created_at"])
         ) for r in rows
     ]

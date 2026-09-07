@@ -43,10 +43,12 @@ class ProcessingPipeline:
         cursor = conn.cursor()
 
         try:
-            # 1. Register document record
+            # 1. Register document record with initial progress
             cursor.execute("""
-                INSERT OR REPLACE INTO documents (id, filename, filepath, filesize, page_count, dataset_tag, status, summary)
-                VALUES (?, ?, ?, ?, ?, ?, 'processing', 'Extracting pages and detecting tables...')
+                INSERT OR REPLACE INTO documents (
+                    id, filename, filepath, filesize, page_count, dataset_tag, 
+                    status, summary, processed_pages, total_pages, current_step, progress_pct
+                ) VALUES (?, ?, ?, ?, ?, ?, 'processing', 'Analyzing PDF layout and detecting tables...', 0, 0, 'Parsing layout & tables', 5)
             """, (doc_id, filename, str(path), path.stat().st_size if path.exists() else 0, 0, dataset_tag))
             conn.commit()
 
@@ -58,14 +60,21 @@ class ProcessingPipeline:
             else:
                 doc_data = self.pdf_processor.extract_document(path)
             
+            pages_to_process = doc_data["pages"]
+            total_target = len(pages_to_process)
+            
             cursor.execute("""
-                UPDATE documents SET page_count = ?, filesize = ? WHERE id = ?
-            """, (doc_data["total_pages"], doc_data["filesize"], doc_id))
+                UPDATE documents 
+                SET page_count = ?, filesize = ?, total_pages = ?, processed_pages = 0,
+                    progress_pct = 10, current_step = 'Starting fact extraction',
+                    summary = ?
+                WHERE id = ?
+            """, (doc_data["total_pages"], doc_data["filesize"], total_target, f"Extracted {total_target} pages. Beginning fact discovery...", doc_id))
             conn.commit()
 
-            # 3. Store pages and extract facts
+            # 3. Store pages and extract facts with live progress updates
             all_new_facts = []
-            for p in doc_data["pages"]:
+            for idx, p in enumerate(pages_to_process, 1):
                 p_num = p["page_number"]
                 p_text = p["text"]
                 
@@ -85,6 +94,25 @@ class ProcessingPipeline:
                         filename=filename
                     )
                     all_new_facts.extend(page_facts)
+
+                # Update live progress after each page
+                pct = int(10 + (idx / total_target) * 70)
+                cursor.execute("""
+                    UPDATE documents 
+                    SET processed_pages = ?, 
+                        progress_pct = ?, 
+                        current_step = ?, 
+                        summary = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (
+                    idx, 
+                    pct, 
+                    f"Processing page {idx} of {total_target}",
+                    f"Processing page {idx}/{total_target} ({len(all_new_facts)} facts discovered so far)...",
+                    doc_id
+                ))
+                conn.commit()
 
             # 4. Save extracted facts into DB with bounding box visual grounding
             for f in all_new_facts:
@@ -113,6 +141,16 @@ class ProcessingPipeline:
 
             new_relationships = []
             if existing_facts and all_new_facts:
+                cursor.execute("""
+                    UPDATE documents 
+                    SET progress_pct = 85, 
+                        current_step = 'Reconciling cross-document knowledge',
+                        summary = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (f"Discovered {len(all_new_facts)} facts. Reconciling against existing knowledge layer...", doc_id))
+                conn.commit()
+
                 logger.info(f"Reconciling {len(all_new_facts)} new facts against {len(existing_facts)} existing facts...")
                 new_relationships = self.reconciler.reconcile_facts(existing_facts, all_new_facts)
                 
@@ -131,14 +169,24 @@ class ProcessingPipeline:
                 logger.info(f"Identified {len(new_relationships)} new cross-document relationships.")
 
             # 6. Mark document as ready
-            summary = f"Processed {len(doc_data['pages'])} pages. Extracted {len(all_new_facts)} facts and established {len(new_relationships)} cross-document relationships."
-            cursor.execute("UPDATE documents SET status = 'ready', summary = ? WHERE id = ?", (summary, doc_id))
+            summary = f"Processed {total_target} pages. Extracted {len(all_new_facts)} facts and established {len(new_relationships)} cross-document relationships."
+            cursor.execute("""
+                UPDATE documents 
+                SET status = 'ready', 
+                    processed_pages = ?, 
+                    total_pages = ?,
+                    progress_pct = 100, 
+                    current_step = 'Completed',
+                    summary = ?, 
+                    updated_at = CURRENT_TIMESTAMP 
+                WHERE id = ?
+            """, (total_target, total_target, summary, doc_id))
             conn.commit()
 
             return {
                 "document_id": doc_id,
                 "filename": filename,
-                "pages_processed": len(doc_data["pages"]),
+                "pages_processed": total_target,
                 "facts_extracted": len(all_new_facts),
                 "relationships_found": len(new_relationships)
             }

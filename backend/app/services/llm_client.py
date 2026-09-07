@@ -10,10 +10,10 @@ logger = logging.getLogger(__name__)
 
 # Preferred model discovery order for Groq API
 PREFERRED_MODELS = [
+    "groq/compound-mini",
+    "groq/compound",
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
-    "groq/compound",
-    "groq/compound-mini",
     "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
     "qwen/qwen3.8-27b",

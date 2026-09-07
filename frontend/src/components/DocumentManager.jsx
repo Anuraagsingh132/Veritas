@@ -5,7 +5,8 @@ import {
   Trash2, 
   RefreshCw,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
 import { DocumentListSkeleton } from './SkeletonLoader';
 
@@ -186,13 +187,38 @@ export default function DocumentManager({
                       {doc.summary || 'PDF document ingested into knowledge layer.'}
                     </p>
 
-                    <div className="flex items-center space-x-3 text-[11px] text-slate-400 font-mono tabular-nums">
-                      <span>{doc.page_count} pages</span>
-                      <span>•</span>
-                      <span>{formatFileSize(doc.filesize)}</span>
-                      <span>•</span>
-                      <span className="text-indigo-400 font-semibold">{doc.fact_count} facts extracted</span>
-                    </div>
+                    {doc.status === 'processing' ? (
+                      <div className="pt-1.5 space-y-1.5 w-full max-w-md">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-amber-400 font-medium flex items-center space-x-1.5">
+                            <Loader2 className="h-3 w-3 animate-spin text-amber-400 flex-shrink-0" />
+                            <span className="truncate max-w-xs">{doc.current_step || 'Processing document...'}</span>
+                          </span>
+                          <span className="text-slate-200 font-mono tabular-nums font-semibold ml-2">
+                            {doc.progress_pct || 10}%
+                          </span>
+                        </div>
+                        <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden border border-slate-700/50">
+                          <div 
+                            className="bg-gradient-to-r from-amber-500 via-indigo-500 to-emerald-500 h-full rounded-full transition-all duration-300 ease-out"
+                            style={{ width: `${Math.max(5, Math.min(100, doc.progress_pct || 10))}%` }}
+                          />
+                        </div>
+                        <div className="flex items-center space-x-2 text-[10px] text-slate-400 font-mono tabular-nums">
+                          <span>Processed {doc.processed_pages || 0} / {doc.total_pages || doc.page_count || '?'} target pages</span>
+                          <span>•</span>
+                          <span className="text-indigo-400 font-semibold">{doc.fact_count || 0} facts found</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center space-x-3 text-[11px] text-slate-400 font-mono tabular-nums">
+                        <span>{doc.page_count} pages</span>
+                        <span>•</span>
+                        <span>{formatFileSize(doc.filesize)}</span>
+                        <span>•</span>
+                        <span className="text-indigo-400 font-semibold">{doc.fact_count} facts extracted</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
