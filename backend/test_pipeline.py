@@ -15,7 +15,7 @@ def test_pipeline_ingest():
         filepath=pdf_path,
         dataset_tag="live-test",
         doc_id="test-doc-delhivery-q4",
-        target_pages=[1, 2, 3, 4, 5]
+        max_pages=5
     )
     print(f"[OK] Pipeline ingestion result: {result}")
     

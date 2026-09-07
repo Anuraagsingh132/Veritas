@@ -35,6 +35,9 @@ dist-ssr/
 .DS_Store
 Thumbs.db
 
-# Database / uploads (runtime uploads)
+# Database / runtime files
 backend/uploads/*
 !backend/uploads/.gitkeep
+backend/data/*.db*
+*.db
+*.db-journal

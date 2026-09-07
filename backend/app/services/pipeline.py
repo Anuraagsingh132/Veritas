@@ -29,8 +29,7 @@ class ProcessingPipeline:
         filepath: str | Path,
         dataset_tag: str = "uploaded",
         doc_id: Optional[str] = None,
-        max_pages: Optional[int] = None,
-        target_pages: Optional[List[int]] = None
+        max_pages: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Ingests a PDF, extracts layout & tables, extracts facts via LLM or heuristics,
@@ -69,10 +68,6 @@ class ProcessingPipeline:
             for p in doc_data["pages"]:
                 p_num = p["page_number"]
                 p_text = p["text"]
-
-                # If target_pages filter is specified, only process those pages
-                if target_pages and p_num not in target_pages:
-                    continue
                 
                 cursor.execute("""
                     INSERT OR REPLACE INTO document_pages (id, document_id, page_number, text_content, char_count, table_count)

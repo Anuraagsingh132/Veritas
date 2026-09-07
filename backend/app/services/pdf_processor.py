@@ -152,7 +152,7 @@ class PDFProcessor:
         for a verbatim or normalized quote.
         """
         if not quote or not page_text:
-            return 0, 0, []
+            return -1, -1, []
 
         clean_quote = quote.strip()
         start_idx = -1
@@ -164,28 +164,36 @@ class PDFProcessor:
             start_idx = idx
             end_idx = idx + len(clean_quote)
         else:
-            # 2. Normalized whitespace & currency symbol match (e.g. ₹ vs Rs)
-            norm_page = re.sub(r'\s+', ' ', page_text)
-            norm_quote = re.sub(r'\s+', ' ', clean_quote)
-            norm_page_sub = norm_page.replace('Rs.', '₹').replace('Rs', '₹')
-            norm_quote_sub = norm_quote.replace('Rs.', '₹').replace('Rs', '₹')
-            
-            idx = norm_page_sub.find(norm_quote_sub)
+            # 2. Case-insensitive direct match
+            idx = page_text.lower().find(clean_quote.lower())
             if idx != -1:
                 start_idx = idx
-                end_idx = idx + len(norm_quote)
+                end_idx = idx + len(clean_quote)
             else:
-                # 3. Substring match (first 40 characters)
-                sub = clean_quote[:min(len(clean_quote), 40)]
-                idx = page_text.lower().find(sub.lower())
+                # 3. Normalized whitespace & currency symbol match (e.g. ₹ vs Rs)
+                norm_page = re.sub(r'\s+', ' ', page_text)
+                norm_quote = re.sub(r'\s+', ' ', clean_quote)
+                norm_page_sub = norm_page.replace('Rs.', '₹').replace('Rs', '₹')
+                norm_quote_sub = norm_quote.replace('Rs.', '₹').replace('Rs', '₹')
+                
+                idx = norm_page_sub.lower().find(norm_quote_sub.lower())
                 if idx != -1:
-                    start_idx = idx
-                    end_idx = min(len(page_text), idx + len(clean_quote))
+                    start_idx = max(0, min(idx, len(page_text) - 1))
+                    end_idx = min(len(page_text), start_idx + len(clean_quote))
                 else:
-                    start_idx = 0
-                    end_idx = min(len(page_text), len(clean_quote))
+                    # 4. Substring prefix match (first 30 characters)
+                    sub = clean_quote[:min(len(clean_quote), 30)].strip()
+                    if len(sub) >= 6:
+                        idx = page_text.lower().find(sub.lower())
+                        if idx != -1:
+                            start_idx = idx
+                            end_idx = min(len(page_text), idx + len(clean_quote))
 
-        # 4. Find matching spatial bounding box from text blocks
+        # If not grounded in page text, reject quote
+        if start_idx == -1 or end_idx == -1:
+            return -1, -1, []
+
+        # 5. Find matching spatial bounding box from text blocks
         bbox = []
         if blocks:
             # Look for block containing the quote snippet

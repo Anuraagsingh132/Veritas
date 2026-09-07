@@ -49,7 +49,7 @@ class FactReconciler:
     evaluates relationships, and documents grounded reasoning.
     Limits candidate pairs to top-K to ensure scalability and avoid Groq rate limits.
     """
-    def __init__(self, llm_client: Optional[LLMClient] = None, max_candidates: int = 40):
+    def __init__(self, llm_client: Optional[LLMClient] = None, max_candidates: int = 20):
         self.llm = llm_client or LLMClient()
         self.max_candidates = max_candidates
 
@@ -61,13 +61,28 @@ class FactReconciler:
         """
         Performs pairwise cross-document reconciliation.
         If new_facts is provided, performs incremental reconciliation.
+        Instantly falls back to domain-agnostic heuristics if rate limits are reached.
         """
         candidate_pairs = self._find_candidate_pairs(existing_facts, new_facts)
         logger.info(f"Reconciling {len(candidate_pairs)} candidate fact pairs.")
         
         relationships = []
+        skip_llm = False
         for fact_a, fact_b in candidate_pairs:
-            rel = self._compare_pair(fact_a, fact_b)
+            rel = None
+            if (self.llm and self.llm.is_available() and not skip_llm 
+                    and not getattr(self.llm, 'is_rate_limited', lambda: False)()):
+                try:
+                    rel = self._compare_pair_llm(fact_a, fact_b)
+                except Exception as e:
+                    err_str = str(e).lower()
+                    if "rate limit" in err_str or "429" in err_str or "cooldown" in err_str:
+                        logger.warning("Groq rate limit encountered during reconciliation. Switching remaining pairs to fast heuristic reconciliation.")
+                        skip_llm = True
+                    rel = self._heuristic_reconcile(fact_a, fact_b)
+            else:
+                rel = self._heuristic_reconcile(fact_a, fact_b)
+
             if rel:
                 relationships.append(rel)
                 
@@ -140,47 +155,49 @@ class FactReconciler:
 
         return jaccard
 
+    def _compare_pair_llm(self, fa: Dict[str, Any], fb: Dict[str, Any]) -> Dict[str, Any]:
+        """Classifies relationship using LLM."""
+        prompt = (
+            f"Fact 1 (from doc {fa.get('document_id')}):\n"
+            f"Subject: {fa.get('subject')}\n"
+            f"Predicate: {fa.get('predicate')}\n"
+            f"Value: {fa.get('value')} {fa.get('unit', '')}\n"
+            f"Temporal: {fa.get('temporal_context')}\n"
+            f"Scope: {fa.get('scope_context')}\n"
+            f"Quote: \"{fa.get('exact_quote')}\"\n\n"
+            f"Fact 2 (from doc {fb.get('document_id')}):\n"
+            f"Subject: {fb.get('subject')}\n"
+            f"Predicate: {fb.get('predicate')}\n"
+            f"Value: {fb.get('value')} {fb.get('unit', '')}\n"
+            f"Temporal: {fb.get('temporal_context')}\n"
+            f"Scope: {fb.get('scope_context')}\n"
+            f"Quote: \"{fb.get('exact_quote')}\""
+        )
+        res = self.llm.chat_json(RECONCILIATION_SYSTEM_PROMPT, prompt)
+        
+        return {
+            "id": f"rel-{uuid.uuid4().hex[:10]}",
+            "fact_id_1": fa["id"],
+            "fact_id_2": fb["id"],
+            "doc_id_1": fa["document_id"],
+            "doc_id_2": fb["document_id"],
+            "relationship_type": res.get("relationship_type", "contextual_reconciliation"),
+            "confidence": float(res.get("confidence", 0.9)),
+            "reasoning": res.get("reasoning", "Semantic analysis across independent documents."),
+            "context_difference": res.get("context_difference", ""),
+            "case_category": res.get("case_category", "")
+        }
+
     def _compare_pair(self, fa: Dict[str, Any], fb: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Classifies relationship using LLM (if available) or domain-agnostic epistemological rules.
         """
-        # 1. LLM-based classification
-        if self.llm.is_available():
+        if self.llm.is_available() and not getattr(self.llm, 'is_rate_limited', lambda: False)():
             try:
-                prompt = (
-                    f"Fact 1 (from doc {fa.get('document_id')}):\n"
-                    f"Subject: {fa.get('subject')}\n"
-                    f"Predicate: {fa.get('predicate')}\n"
-                    f"Value: {fa.get('value')} {fa.get('unit', '')}\n"
-                    f"Temporal: {fa.get('temporal_context')}\n"
-                    f"Scope: {fa.get('scope_context')}\n"
-                    f"Quote: \"{fa.get('exact_quote')}\"\n\n"
-                    f"Fact 2 (from doc {fb.get('document_id')}):\n"
-                    f"Subject: {fb.get('subject')}\n"
-                    f"Predicate: {fb.get('predicate')}\n"
-                    f"Value: {fb.get('value')} {fb.get('unit', '')}\n"
-                    f"Temporal: {fb.get('temporal_context')}\n"
-                    f"Scope: {fb.get('scope_context')}\n"
-                    f"Quote: \"{fb.get('exact_quote')}\""
-                )
-                res = self.llm.chat_json(RECONCILIATION_SYSTEM_PROMPT, prompt)
-                
-                return {
-                    "id": f"rel-{uuid.uuid4().hex[:10]}",
-                    "fact_id_1": fa["id"],
-                    "fact_id_2": fb["id"],
-                    "doc_id_1": fa["document_id"],
-                    "doc_id_2": fb["document_id"],
-                    "relationship_type": res.get("relationship_type", "contextual_reconciliation"),
-                    "confidence": float(res.get("confidence", 0.9)),
-                    "reasoning": res.get("reasoning", "Semantic analysis across independent documents."),
-                    "context_difference": res.get("context_difference", ""),
-                    "case_category": res.get("case_category", "")
-                }
+                return self._compare_pair_llm(fa, fb)
             except Exception as e:
                 logger.warning(f"LLM reconciliation call failed: {e}. Falling back to rule-based reconciliation.")
 
-        # 2. Domain-Agnostic Heuristic Reconciliation
         return self._heuristic_reconcile(fa, fb)
 
     def _heuristic_reconcile(self, fa: Dict[str, Any], fb: Dict[str, Any]) -> Optional[Dict[str, Any]]:

@@ -13,11 +13,11 @@ Your objective is to discover, extract, and ground meaningful NUMERICAL and SEMA
 
 Guidelines:
 1. Dynamic Schema: Let the document guide what constitutes a fact. Do NOT force a fixed schema. Extract quantitative assertions, financial indicators, operational metrics, scientific findings, dates, entity milestones, and key predicates.
-2. Verbatim Grounding: EVERY fact MUST be backed by an exact, word-for-word quote from the text or table cell. Do not paraphrase or synthesize the quote.
+2. Verbatim Grounding: EVERY fact MUST be backed by an exact, word-for-word quote from the text or table cell. Do not paraphrase, edit, or summarize the quote. If a quote is not present in the text, DO NOT invent it.
 3. Context Disambiguation: Explicitly extract:
-   - temporal_context: Specific fiscal year, quarter, calendar date, or vintage period if mentioned (e.g. 'FY 2023-24', 'May 2011', 'Q4 FY24', '2025-26', 'Staff Baseline Projection').
+   - temporal_context: Specific fiscal year, quarter, calendar date, or vintage period if mentioned.
    - scope_context: Reporting scope, methodology, or accounting treatment (e.g. 'Consolidated', 'Standalone', 'Advance Estimate', 'Provisional', 'Staff Baseline', 'Pre-IPO').
-   - unit: Exact unit or scale (e.g. 'INR Crores', 'Percent (%)', 'km/h', 'PIN Codes', 'Units', 'Million USD').
+   - unit: Exact unit or scale (e.g. 'INR Crores', 'Percent (%)', 'Million USD', 'Units').
 4. Multi-Column Tables & Layout Risk (Case 4 Handling):
    If a fact is extracted from a complex table, footnote, or dense multi-column layout where column headers could misalign or be transposed, flag it:
    - is_failure_example: true
@@ -30,9 +30,9 @@ Format your response as a JSON object:
 {
   "facts": [
     {
-      "category": "financial | operational | macroeconomic | corporate_governance | scientific | semantic",
-      "subject": "Clear entity and metric name (e.g. Delhivery Limited Consolidated Revenue from Operations)",
-      "predicate": "Attribute or relationship (e.g. reported_annual_revenue, projected_real_gdp_growth)",
+      "category": "financial | macroeconomic | operational | governance | scientific | quantitative",
+      "subject": "Clear entity and metric name",
+      "predicate": "Attribute or relationship",
       "value": "Normalized numerical or semantic value as string",
       "unit": "Unit of measurement or scale if applicable",
       "temporal_context": "Exact time period or vintage",
@@ -44,13 +44,13 @@ Format your response as a JSON object:
     }
   ]
 }
-Extract up to 8 of the most critical and prominent facts from this page. Focus on high precision and verbatim evidence grounding.
+Extract up to 20 of the most prominent facts from this page, especially capturing all rows from dense tables and multi-column sections. Focus on high precision and verbatim evidence grounding.
 """
 
 class FactExtractor:
     """
     Extracts structured, grounded facts from PDF document text with dynamic schema inference,
-    table structure preservation, and spatial visual coordinates.
+    table structure preservation, spatial visual coordinates, and strict hallucination rejection.
     """
     def __init__(self, llm_client: Optional[LLMClient] = None):
         self.llm = llm_client or LLMClient()
@@ -66,7 +66,7 @@ class FactExtractor:
     ) -> List[Dict[str, Any]]:
         """
         Extracts facts from a single page's text and structured tables using LLM or
-        domain-agnostic structural heuristics.
+        domain-agnostic structural heuristics. Rejects hallucinated quotes.
         """
         if not page_text or len(page_text.strip()) < 40:
             return []
@@ -92,20 +92,29 @@ class FactExtractor:
                 processed_facts = []
                 for f in raw_facts:
                     quote = f.get("exact_quote", "").strip()
+                    if not quote:
+                        continue
+
                     start_off, end_off, bbox = PDFProcessor.locate_quote_with_bbox(page_text, blocks, quote)
                     
+                    # STRICT GROUNDING VERIFICATION:
+                    # Reject facts if the quote cannot be verified anywhere in the source page text or blocks
+                    if start_off == -1 or end_off == -1:
+                        logger.warning(f"STRICT GROUNDING: Discarded hallucinated quote on p.{page_number}: '{quote[:50]}'")
+                        continue
+
                     processed_facts.append({
                         "id": f"fact-{uuid.uuid4().hex[:10]}",
                         "document_id": doc_id,
                         "page_number": page_number,
-                        "category": f.get("category", "semantic"),
+                        "category": f.get("category", "quantitative"),
                         "subject": f.get("subject", "Unspecified Entity"),
                         "predicate": f.get("predicate", "stated"),
                         "value": str(f.get("value", "")),
                         "unit": f.get("unit", ""),
                         "temporal_context": f.get("temporal_context", ""),
                         "scope_context": f.get("scope_context", ""),
-                        "exact_quote": quote if quote else page_text[:200].strip(),
+                        "exact_quote": quote,
                         "char_offset_start": start_off,
                         "char_offset_end": end_off,
                         "bbox": bbox,
@@ -129,75 +138,60 @@ class FactExtractor:
         filename: str
     ) -> List[Dict[str, Any]]:
         """
-        Domain-agnostic quantitative & relational fact extractor that works on ANY document
-        (science, history, finance, general text) without hardcoded document names or fixed schemas.
+        Purely generic, domain-agnostic quantitative fact extractor.
+        Identifies numeric assertions across any text without dataset-specific keywords.
         """
         facts = []
-        
-        # Split text into sentences
         sentences = re.split(r'(?<=[.!?])\s+', page_text)
         
         for sentence in sentences:
             sentence_clean = sentence.strip()
-            if len(sentence_clean) < 25 or len(sentence_clean) > 300:
+            if len(sentence_clean) < 20 or len(sentence_clean) > 300:
                 continue
 
-            # Pattern: Quantitative metric statement (Number + Unit/Word or Currency/Percentage)
-            # Examples:
-            # - "The population grew by 14.2% over three years"
-            # - "Emperor penguins dive to depths of 535 meters"
-            # - "Revenue stood at ₹8,142 Crores in FY24"
-            # - "Founded on June 22, 2011 with an initial capital of 500,000"
-            quant_matches = re.finditer(
-                r'(?:([₹$€£]\s*[0-9,]+(?:\.[0-9]+)?(?:\s*(?:Cr(?:ore)?s?|Mn|Million|Billion|Trillion|k|K))?)'
-                r'|([0-9,]+(?:\.[0-9]+)?\s*(?:%|percent|Crores|Cr|Millions|Mn|Billion|km|meters|kg|miles|years|days|PIN codes|locations|shares|employees)))',
-                sentence_clean,
-                re.IGNORECASE
+            # Generic quantity matcher: currency symbol or number followed by optional unit word or %
+            matches = re.finditer(
+                r'(?:([\$€£₹]\s*[0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?(?:\s*[A-Za-z]+)?)|([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?\s*(?:%|[A-Za-z]+)))',
+                sentence_clean
             )
 
-            for m in quant_matches:
-                matched_val = m.group(0).strip()
-                
-                # Extract value and unit
-                num_part = re.search(r'[0-9,]+(?:\.[0-9]+)?', matched_val)
-                val_str = num_part.group(0).replace(',', '') if num_part else matched_val
-                
-                unit_str = ""
-                if "₹" in matched_val or "rs" in matched_val.lower():
-                    unit_str = "INR " + re.sub(r'[^a-zA-Z]', '', matched_val).replace('rs', '').strip()
-                elif "$" in matched_val:
-                    unit_str = "USD"
-                elif "%" in matched_val or "percent" in matched_val.lower():
-                    unit_str = "%"
-                else:
-                    unit_words = re.findall(r'[a-zA-Z]+', matched_val)
-                    unit_str = " ".join(unit_words) if unit_words else ""
+            for m in matches:
+                token = m.group(0).strip()
+                # Extract clean value
+                val_match = re.search(r'[0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?', token)
+                if not val_match:
+                    continue
+                val_str = val_match.group(0).replace(',', '')
 
-                # Infer subject from leading clause
-                lead_clause = sentence_clean[:m.start()].strip()
-                # Clean punctuation from subject
-                subject_tokens = [w for w in re.findall(r'[A-Za-z0-9\'-]+', lead_clause) if len(w) > 1]
-                if subject_tokens:
-                    # Pick last 3-6 informative words before the number as predicate/subject
-                    subject_cand = " ".join(subject_tokens[-5:])
-                else:
-                    subject_cand = "Quantitative Indicator"
+                # Extract unit
+                unit_str = token.replace(val_match.group(0), '').strip()
+                if "₹" in token:
+                    unit_str = "INR " + unit_str.replace('₹', '').strip()
+                elif "$" in token:
+                    unit_str = "USD " + unit_str.replace('$', '').strip()
 
-                # Infer temporal context if present (e.g. FY24, 2024, 2011, March 31, Q4)
-                temp_match = re.search(r'\b(FY\s*\d{2,4}|Q[1-4](?:\s*FY\d{2,4})?|\d{4}-\d{2,4}|\b(?:19|20)\d{2}\b|(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4})\b', sentence_clean, re.IGNORECASE)
+                # Infer subject from preceding words in sentence
+                preceding = sentence_clean[:m.start()].strip()
+                words = re.findall(r'[A-Za-z0-9\'-]+', preceding)
+                subject_str = " ".join(words[-4:]) if words else "Quantitative Statement"
+
+                # Detect temporal context (years, quarters, dates)
+                temp_match = re.search(
+                    r'\b((?:19|20)\d{2}(?:-\d{2,4})?|FY\s*\d{2,4}|Q[1-4]|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4})\b',
+                    sentence_clean,
+                    re.IGNORECASE
+                )
                 temporal = temp_match.group(0) if temp_match else ""
 
-                # Determine category based on context cues
-                cat = "semantic"
+                # Generic category classification
                 s_lower = sentence_clean.lower()
-                if any(w in s_lower for w in ["revenue", "income", "profit", "ebitda", "capital", "cost", "crore", "dollar", "inr"]):
+                cat = "quantitative"
+                if any(w in s_lower for w in ["revenue", "income", "profit", "ebitda", "cost", "margin", "expense"]):
                     cat = "financial"
-                elif any(w in s_lower for w in ["gdp", "inflation", "cpi", "monetary", "rbi", "imf", "economy", "growth"]):
+                elif any(w in s_lower for w in ["gdp", "growth", "inflation", "cpi", "fiscal", "deficit"]):
                     cat = "macroeconomic"
-                elif any(w in s_lower for w in ["founded", "incorporated", "board", "director", "cin", "company", "registered"]):
-                    cat = "corporate_governance"
-                elif any(w in s_lower for w in ["volume", "centers", "fleet", "pincode", "hubs", "capacity", "parcels", "delivery"]):
-                    cat = "operational"
+                elif any(w in s_lower for w in ["incorporated", "founded", "director", "board", "governance", "committee"]):
+                    cat = "governance"
 
                 start_off, end_off, bbox = PDFProcessor.locate_quote_with_bbox(page_text, blocks, sentence_clean)
 
@@ -206,25 +200,25 @@ class FactExtractor:
                     "document_id": doc_id,
                     "page_number": page_number,
                     "category": cat,
-                    "subject": subject_cand,
-                    "predicate": "reported_value",
+                    "subject": subject_str,
+                    "predicate": "stated_value",
                     "value": val_str,
                     "unit": unit_str.strip(),
                     "temporal_context": temporal,
-                    "scope_context": "Reported" if "reported" in s_lower else "General",
+                    "scope_context": "Reported",
                     "exact_quote": sentence_clean,
                     "char_offset_start": start_off,
                     "char_offset_end": end_off,
                     "bbox": bbox,
-                    "confidence": 0.82,
+                    "confidence": 0.80,
                     "is_failure_example": 0,
                     "failure_notes": ""
                 })
 
-                if len(facts) >= 6:
+                if len(facts) >= 10:
                     break
 
-            if len(facts) >= 6:
+            if len(facts) >= 10:
                 break
 
         return facts
