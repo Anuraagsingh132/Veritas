@@ -5,10 +5,10 @@ from main import app
 client = TestClient(app)
 
 def test_endpoints():
-    # 1. Root
-    r = client.get("/")
-    assert r.status_code == 200, f"Root failed: {r.status_code}"
-    print("[OK] Root endpoint:", r.json()["name"])
+    # 1. API Info
+    r = client.get("/api/info")
+    assert r.status_code == 200, f"API Info failed: {r.status_code}"
+    print("[OK] API Info endpoint:", r.json()["name"])
 
     # 2. Documents
     r = client.get("/api/documents")
@@ -21,6 +21,11 @@ def test_endpoints():
     assert r.status_code == 200
     facts = r.json()
     print(f"[OK] Facts endpoint: {len(facts)} facts found")
+    if facts:
+        first_id = facts[0]["id"]
+        r_single = client.get(f"/api/facts/{first_id}")
+        assert r_single.status_code == 200
+        print(f"[OK] Single Fact detail endpoint for {first_id}: retrieved with {len(r_single.json()['relationships'])} relationships")
 
     # 4. Reconciliation
     r = client.get("/api/reconciliation")

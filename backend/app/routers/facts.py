@@ -94,7 +94,7 @@ def get_fact(fact_id: str):
                d2.filename as other_doc_filename
         FROM relationships r
         JOIN facts f2 ON (CASE WHEN r.fact_id_1 = ? THEN r.fact_id_2 ELSE r.fact_id_1 END) = f2.id
-        JOIN documents d2 ON (CASE WHEN r.doc_id_1 = fact.document_id THEN r.doc_id_2 ELSE r.doc_id_1 END) = d2.id
+        JOIN documents d2 ON f2.document_id = d2.id
         WHERE r.fact_id_1 = ? OR r.fact_id_2 = ?
     """, (fact_id, fact_id, fact_id))
     relationships = [dict(r) for r in cursor.fetchall()]

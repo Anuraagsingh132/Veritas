@@ -3,9 +3,13 @@ from pathlib import Path
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-# Load from .env if present
-env_path = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(dotenv_path=env_path)
+# Load from .env if present (check backend/.env then root .env)
+backend_env = Path(__file__).resolve().parent.parent / ".env"
+root_env = Path(__file__).resolve().parent.parent.parent / ".env"
+if backend_env.exists():
+    load_dotenv(dotenv_path=backend_env)
+if root_env.exists():
+    load_dotenv(dotenv_path=root_env)
 
 class Settings(BaseModel):
     APP_NAME: str = "Superjoin Fact Knowledge Layer"

@@ -1,14 +1,9 @@
 import React, { useState } from 'react';
 import { 
   Search, 
-  Filter, 
   FileText, 
   Quote, 
-  Calendar, 
-  Layers, 
-  AlertCircle,
-  ExternalLink,
-  Check
+  Calendar
 } from 'lucide-react';
 
 export default function FactExplorer({ facts, documents, loading }) {

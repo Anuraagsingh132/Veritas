@@ -77,11 +77,12 @@ async def upload_document(
     Accepts new PDF uploads and triggers background text extraction,
     fact extraction, and incremental reconciliation against existing knowledge.
     """
-    if not file.filename.lower().endswith(".pdf"):
+    safe_filename = Path(file.filename).name
+    if not safe_filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
     doc_id = f"doc-{uuid.uuid4().hex[:8]}"
-    upload_path = settings.UPLOAD_DIR / f"{doc_id}_{file.filename}"
+    upload_path = settings.UPLOAD_DIR / f"{doc_id}_{safe_filename}"
     
     with open(upload_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)

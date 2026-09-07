@@ -2,12 +2,8 @@ import React, { useState, useRef } from 'react';
 import { 
   UploadCloud, 
   FileText, 
-  CheckCircle, 
-  Clock, 
-  AlertCircle, 
   Trash2, 
-  RefreshCw,
-  Layers
+  RefreshCw
 } from 'lucide-react';
 
 export default function DocumentManager({ 

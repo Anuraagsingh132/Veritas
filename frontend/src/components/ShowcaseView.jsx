@@ -6,11 +6,8 @@ import {
   Clock, 
   HelpCircle, 
   FileText, 
-  ArrowRight, 
   Quote, 
-  ShieldCheck,
-  ChevronDown,
-  ChevronUp
+  ShieldCheck
 } from 'lucide-react';
 
 export default function ShowcaseView({ cases, loading }) {

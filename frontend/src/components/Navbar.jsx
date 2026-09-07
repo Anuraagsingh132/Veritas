@@ -6,7 +6,6 @@ import {
   GitCompare, 
   FileText, 
   Key, 
-  Activity, 
   RotateCcw 
 } from 'lucide-react';
 

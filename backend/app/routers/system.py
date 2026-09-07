@@ -3,13 +3,13 @@ from pydantic import BaseModel
 from typing import Optional
 from app.db import get_db_connection, init_db
 from app.services.seed_data import seed_starter_knowledge
-from app.services.llm_client import LLMClient
+from app.services.llm_client import shared_llm_client
 from app.models import StatsResponse
 from app.config import settings
 
 router = APIRouter(prefix="/api/system", tags=["System"])
 
-llm_client = LLMClient()
+llm_client = shared_llm_client
 
 class KeyUpdateRequest(BaseModel):
     groq_api_key: str

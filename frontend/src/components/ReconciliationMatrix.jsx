@@ -4,10 +4,6 @@ import {
   CheckCircle2, 
   AlertTriangle, 
   Clock, 
-  HelpCircle, 
-  ArrowRight, 
-  FileText, 
-  Quote, 
   RefreshCw 
 } from 'lucide-react';
 

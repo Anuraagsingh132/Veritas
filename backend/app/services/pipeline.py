@@ -8,7 +8,7 @@ from app.db import get_db_connection
 from app.services.pdf_processor import PDFProcessor
 from app.services.fact_extractor import FactExtractor
 from app.services.reconciler import FactReconciler
-from app.services.llm_client import LLMClient
+from app.services.llm_client import LLMClient, shared_llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ class ProcessingPipeline:
     Coordinates PDF extraction, fact extraction, persistence, and reconciliation.
     """
     def __init__(self, llm_client: Optional[LLMClient] = None):
-        self.llm = llm_client or LLMClient()
+        self.llm = llm_client or shared_llm_client
         self.pdf_processor = PDFProcessor(max_pages=settings.MAX_PAGES_DEFAULT)
         self.fact_extractor = FactExtractor(self.llm)
         self.reconciler = FactReconciler(self.llm)

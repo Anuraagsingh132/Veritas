@@ -1,5 +1,4 @@
-import React, { useState } from 'react';
-import { Key, Check, ShieldAlert, X } from 'lucide-react';
+import { Key, X } from 'lucide-react';
 
 export default function ApiKeyModal({ isOpen, onClose, onSaveKey, currentStatus }) {
   const [apiKey, setApiKey] = useState('');

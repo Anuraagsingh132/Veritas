@@ -94,3 +94,6 @@ class LLMClient:
             logger.info("Groq client re-initialized with new key.")
         else:
             self._client = None
+
+# Global shared singleton
+shared_llm_client = LLMClient()
