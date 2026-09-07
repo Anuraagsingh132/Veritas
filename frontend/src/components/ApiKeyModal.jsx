@@ -73,7 +73,7 @@ export default function ApiKeyModal({ isOpen, onClose, onSaveKey, currentStatus 
         </div>
 
         <p className="text-xs text-slate-400 leading-relaxed text-pretty">
-          Power real-time cross-document fact extraction and reconciliation using <span className="text-slate-200 font-mono">llama-3.3-70b-versatile</span> on Groq's high-speed inference engine.
+          Power real-time cross-document fact extraction and reconciliation using <span className="text-indigo-300 font-mono font-medium">{currentStatus?.model || 'groq/compound-mini'}</span> on Groq's high-throughput inference engine (70K TPM).
         </p>
 
         <div className="space-y-1.5">
@@ -123,9 +123,15 @@ export default function ApiKeyModal({ isOpen, onClose, onSaveKey, currentStatus 
             </span>
           </div>
           <div className="flex justify-between items-center">
-            <span>Model:</span>
-            <span className="font-mono text-slate-300">{currentStatus?.model || 'llama-3.3-70b-versatile'}</span>
+            <span>Active Model:</span>
+            <span className="font-mono text-indigo-400 font-medium">{currentStatus?.model || 'groq/compound-mini'}</span>
           </div>
+          {currentStatus?.fallback_model && (
+            <div className="flex justify-between items-center">
+              <span>Fallback Model:</span>
+              <span className="font-mono text-slate-400 text-[10px]">{currentStatus.fallback_model}</span>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-end space-x-2.5 pt-2">

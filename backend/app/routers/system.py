@@ -74,7 +74,8 @@ def get_status():
     return {
         "status": "online",
         "llm_available": llm_client.is_available(),
-        "model": settings.DEFAULT_MODEL,
+        "model": llm_client.model,
+        "fallback_model": getattr(llm_client, "fallback_model", ""),
         "database_path": str(settings.DB_PATH)
     }
 
