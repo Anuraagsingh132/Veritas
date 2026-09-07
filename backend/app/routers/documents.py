@@ -105,6 +105,11 @@ async def upload_document(
                         upload_path.unlink()
                     raise HTTPException(status_code=413, detail="File size exceeds maximum permitted limit (50 MB).")
                 buffer.write(chunk)
+
+        if total_size == 0:
+            if upload_path.exists():
+                upload_path.unlink()
+            raise HTTPException(status_code=400, detail="Cannot process empty (0-byte) PDF file.")
     except HTTPException:
         raise
     except Exception as e:
@@ -134,11 +139,18 @@ def delete_document(doc_id: str):
         raise HTTPException(status_code=404, detail="Document not found")
     
     filepath = row["filepath"]
-    if filepath and Path(filepath).exists():
-        try:
-            Path(filepath).unlink()
-        except Exception as e:
-            logger.warning(f"Could not unlink file {filepath}: {e}")
+    if filepath:
+        target_path = Path(filepath).resolve()
+        upload_dir = settings.UPLOAD_DIR.resolve()
+        # Strictly verify file is inside the uploads directory before unlinking to protect starter fixtures
+        if target_path.exists() and upload_dir in target_path.parents:
+            try:
+                target_path.unlink()
+                logger.info(f"Unlinked uploaded file: {target_path}")
+            except Exception as e:
+                logger.warning(f"Could not unlink file {filepath}: {e}")
+        else:
+            logger.info(f"Preserving source dataset file on disk: {target_path}")
 
     cursor.execute("DELETE FROM relationships WHERE doc_id_1 = ? OR doc_id_2 = ?", (doc_id, doc_id))
     cursor.execute("DELETE FROM facts WHERE document_id = ?", (doc_id,))

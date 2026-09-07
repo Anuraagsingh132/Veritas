@@ -29,13 +29,17 @@ Classification Rules:
 4. EXTRACTION_FAILURE (Case 4):
    - The anomaly or discrepancy arose from a PDF layout artifact, multi-column table transposition, or header alignment error.
 
+5. UNRELATED:
+   - The facts describe completely different entities (e.g., Apple revenue vs Microsoft revenue), unrelated topics, or metrics that have no meaningful comparative relationship.
+   - Set relationship_type to "unrelated".
+
 Format your response as a JSON object:
 {
-  "relationship_type": "corroboration | genuine_contradiction | contextual_reconciliation | extraction_failure",
+  "relationship_type": "corroboration | genuine_contradiction | contextual_reconciliation | extraction_failure | unrelated",
   "confidence": 0.95,
-  "case_category": "case_1_corroboration | case_2_contradiction | case_3_contextual | case_4_failure",
+  "case_category": "case_1_corroboration | case_2_contradiction | case_3_contextual | case_4_failure | none",
   "context_difference": "temporal | scope | units | methodology | none",
-  "reasoning": "Clear, rigorous multi-sentence explanation of why these two facts corroborate, contradict, or reconcile."
+  "reasoning": "Clear, rigorous multi-sentence explanation of why these two facts corroborate, contradict, reconcile, or are unrelated."
 }
 """
 
@@ -161,6 +165,14 @@ class FactReconciler:
                 # Candidate Pre-Filtering: Protect against comparing incompatible categories or value types
                 cat_a = str(fa.get("category", "")).lower().strip()
                 cat_b = str(fb.get("category", "")).lower().strip()
+                ent_a = str(fa.get("entity", "")).strip()
+                ent_b = str(fb.get("entity", "")).strip()
+
+                # Disallow pairing distinct corporate entities
+                if ent_a and ent_b and ent_a != "General" and ent_b != "General" and ent_a.lower() != ent_b.lower():
+                    if not (cat_a == "macroeconomic" and cat_b == "macroeconomic"):
+                        continue
+
                 val_a = str(fa.get("value", "")).strip().replace(",", "")
                 val_b = str(fb.get("value", "")).strip().replace(",", "")
                 is_num_a = any(c.isdigit() for c in val_a)
@@ -175,7 +187,7 @@ class FactReconciler:
                     continue
 
                 score = self._compute_similarity(fa, fb)
-                if score > 0.15:  # Sufficient semantic overlap
+                if score > 0.20:  # Sufficient semantic and entity overlap
                     first, second = (fa, fb) if fa["id"] < fb["id"] else (fb, fa)
                     scored_pairs.append((score, first, second))
 
@@ -185,10 +197,20 @@ class FactReconciler:
 
     def _compute_similarity(self, fa: Dict[str, Any], fb: Dict[str, Any]) -> float:
         """
-        Calculates token Jaccard similarity between two facts across subject, predicate, and quotes.
+        Calculates token Jaccard similarity between two facts across subject, predicate, entity, and quotes.
         """
-        text_a = f"{fa.get('subject', '')} {fa.get('predicate', '')} {fa.get('category', '')}".lower()
-        text_b = f"{fb.get('subject', '')} {fb.get('predicate', '')} {fb.get('category', '')}".lower()
+        ent_a = str(fa.get("entity", "")).strip()
+        ent_b = str(fb.get("entity", "")).strip()
+        cat_a = str(fa.get("category", "")).lower().strip()
+        cat_b = str(fb.get("category", "")).lower().strip()
+
+        # Reject candidate pairing between different corporate entities
+        if ent_a and ent_b and ent_a != "General" and ent_b != "General" and ent_a.lower() != ent_b.lower():
+            if not (cat_a == "macroeconomic" and cat_b == "macroeconomic"):
+                return 0.0
+
+        text_a = f"{ent_a} {fa.get('subject', '')} {fa.get('predicate', '')} {cat_a}".lower()
+        text_b = f"{ent_b} {fb.get('subject', '')} {fb.get('predicate', '')} {cat_b}".lower()
 
         tokens_a = {w for w in re.findall(r'\b[a-z]{3,}\b', text_a) if w not in STOP_WORDS}
         tokens_b = {w for w in re.findall(r'\b[a-z]{3,}\b', text_b) if w not in STOP_WORDS}
@@ -198,20 +220,27 @@ class FactReconciler:
 
         intersection = len(tokens_a.intersection(tokens_b))
         union = len(tokens_a.union(tokens_b))
+        if intersection == 0:
+            return 0.0
+
         jaccard = intersection / union if union > 0 else 0.0
 
-        # Category bonus
+        # Category bonus (toned down to 0.05)
         if fa.get("category") == fb.get("category") and fa.get("category"):
-            jaccard += 0.2
+            jaccard += 0.05
 
         # Temporal match bonus
         if fa.get("temporal_context") and fa.get("temporal_context") == fb.get("temporal_context"):
-            jaccard += 0.25
+            jaccard += 0.10
+
+        # Entity match bonus
+        if ent_a and ent_a == ent_b:
+            jaccard += 0.15
 
         return jaccard
 
-    def _compare_pair_llm(self, fa: Dict[str, Any], fb: Dict[str, Any]) -> Dict[str, Any]:
-        """Classifies relationship using LLM."""
+    def _compare_pair_llm(self, fa: Dict[str, Any], fb: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Classifies relationship using LLM. Returns None if classified as unrelated."""
         if fa["id"] > fb["id"]:
             fa, fb = fb, fa
 
@@ -219,6 +248,7 @@ class FactReconciler:
 
         prompt = (
             f"Fact 1 (from doc {fa.get('document_id')}):\n"
+            f"Entity: {fa.get('entity')}\n"
             f"Subject: {fa.get('subject')}\n"
             f"Predicate: {fa.get('predicate')}\n"
             f"Value: {fa.get('value')} {fa.get('unit', '')}\n"
@@ -226,6 +256,7 @@ class FactReconciler:
             f"Scope: {fa.get('scope_context')}\n"
             f"Quote: \"{fa.get('exact_quote')}\"\n\n"
             f"Fact 2 (from doc {fb.get('document_id')}):\n"
+            f"Entity: {fb.get('entity')}\n"
             f"Subject: {fb.get('subject')}\n"
             f"Predicate: {fb.get('predicate')}\n"
             f"Value: {fb.get('value')} {fb.get('unit', '')}\n"
@@ -234,14 +265,17 @@ class FactReconciler:
             f"Quote: \"{fb.get('exact_quote')}\""
         )
         res = self.llm.chat_json(RECONCILIATION_SYSTEM_PROMPT, prompt)
-        
+        rel_type = res.get("relationship_type", "contextual_reconciliation")
+        if rel_type == "unrelated":
+            return None
+
         return {
             "id": rel_id,
             "fact_id_1": fa["id"],
             "fact_id_2": fb["id"],
             "doc_id_1": fa["document_id"],
             "doc_id_2": fb["document_id"],
-            "relationship_type": res.get("relationship_type", "contextual_reconciliation"),
+            "relationship_type": rel_type,
             "confidence": float(res.get("confidence", 0.9)),
             "reasoning": res.get("reasoning", "Semantic analysis across independent documents."),
             "context_difference": res.get("context_difference", ""),
@@ -254,7 +288,10 @@ class FactReconciler:
         """
         if self.llm.is_available() and not getattr(self.llm, 'is_rate_limited', lambda: False)():
             try:
-                return self._compare_pair_llm(fa, fb)
+                res = self._compare_pair_llm(fa, fb)
+                if res is not None:
+                    return res
+                return None
             except Exception as e:
                 logger.warning(f"LLM reconciliation call failed: {e}. Falling back to rule-based reconciliation.")
 
@@ -266,11 +303,40 @@ class FactReconciler:
         - Exact numeric/semantic match -> Corroboration
         - Differing values + distinct time periods/units/scopes -> Contextual Reconciliation
         - Conflicting values + identical time period & scope -> Genuine Contradiction
+        Strictly enforces entity isolation and subject overlap guards.
         """
         if fa["id"] > fb["id"]:
             fa, fb = fb, fa
 
         rel_id = self.generate_relationship_id(fa["id"], fb["id"])
+
+        ent_a = str(fa.get("entity", "")).strip()
+        ent_b = str(fb.get("entity", "")).strip()
+        sub_a = str(fa.get("subject", "")).strip()
+        sub_b = str(fb.get("subject", "")).strip()
+        cat_a = str(fa.get("category", "")).lower().strip()
+        cat_b = str(fb.get("category", "")).lower().strip()
+
+        # Non-stopword tokens from entity + subject
+        tokens_subj_a = {w for w in re.findall(r'\b[a-z]{3,}\b', f"{ent_a} {sub_a}".lower()) if w not in STOP_WORDS}
+        tokens_subj_b = {w for w in re.findall(r'\b[a-z]{3,}\b', f"{ent_b} {sub_b}".lower()) if w not in STOP_WORDS}
+
+        # Check for matching entity
+        same_entity = (ent_a and ent_b and ent_a.lower() == ent_b.lower())
+
+        # Macroeconomic institutional comparison (e.g. RBI vs IMF comparing India GDP)
+        is_macro_comparison = (cat_a == "macroeconomic" and cat_b == "macroeconomic") and \
+            any(w in f"{sub_a} {sub_b}".lower() for w in ["gdp", "growth", "india", "inflation", "debt", "deficit"])
+
+        has_subject_overlap = len(tokens_subj_a.intersection(tokens_subj_b)) > 0 or sub_a.lower() == sub_b.lower()
+
+        # Entity Guard: Strictly reject comparisons between different corporate entities
+        if ent_a and ent_b and ent_a != "General" and ent_b != "General" and not same_entity and not is_macro_comparison:
+            return None
+
+        # Require subject overlap, confirmed same entity, or macroeconomic comparison
+        if not has_subject_overlap and not same_entity and not is_macro_comparison:
+            return None
 
         val_a = str(fa.get("value", "")).strip().replace(",", "")
         val_b = str(fb.get("value", "")).strip().replace(",", "")

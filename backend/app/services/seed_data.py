@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from app.db import get_db_connection
+from app.db import get_db_connection, init_db
 from app.services.pipeline import ProcessingPipeline
 from app.services.reconciler import FactReconciler
 from app.services.llm_client import shared_llm_client
@@ -34,6 +34,11 @@ STARTER_CONFIG = {
         "tag": "india-macroeconomy",
         "folder": "india-macroeconomy",
         "pages": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    },
+    "01-india-economic-survey-2024-25-excerpt.pdf": {
+        "tag": "india-macroeconomy",
+        "folder": "india-macroeconomy",
+        "pages": [1, 2, 3, 4, 5, 10, 11, 12]
     }
 }
 
@@ -44,6 +49,7 @@ def seed_starter_knowledge(force: bool = False):
     Extracts facts with PyMuPDF and Groq LLM (or generic heuristics), persists them to SQLite,
     and guarantees that the four canonical showcase cases are verified and grounded.
     """
+    init_db()
     conn = get_db_connection()
     cursor = conn.cursor()
 
@@ -115,6 +121,7 @@ def ensure_canonical_showcase_cases(cursor, conn):
             "id": "fact-delhivery-rev-q4",
             "doc_id": q4_doc_id,
             "page": 6,
+            "entity": "Delhivery Limited",
             "cat": "financial",
             "sub": "Delhivery Limited Revenue from Operations",
             "pred": "revenue",
@@ -133,6 +140,7 @@ def ensure_canonical_showcase_cases(cursor, conn):
             "id": "fact-delhivery-rev-ar24",
             "doc_id": ar_doc_id,
             "page": 36,
+            "entity": "Delhivery Limited",
             "cat": "financial",
             "sub": "Delhivery Limited Revenue from Customers",
             "pred": "revenue",
@@ -151,6 +159,7 @@ def ensure_canonical_showcase_cases(cursor, conn):
             "id": "fact-delhivery-rev-standalone-ar24",
             "doc_id": ar_doc_id,
             "page": 22,
+            "entity": "Delhivery Limited",
             "cat": "financial",
             "sub": "Delhivery Limited Revenue from Operations",
             "pred": "revenue",
@@ -169,6 +178,7 @@ def ensure_canonical_showcase_cases(cursor, conn):
             "id": "fact-rbi-gdp-2025-26",
             "doc_id": rbi_doc_id,
             "page": 17,
+            "entity": "Reserve Bank of India",
             "cat": "macroeconomic",
             "sub": "India Real GDP Growth",
             "pred": "gdp_growth_rate",
@@ -187,6 +197,7 @@ def ensure_canonical_showcase_cases(cursor, conn):
             "id": "fact-imf-gdp-2025-26",
             "doc_id": imf_doc_id,
             "page": 13,
+            "entity": "International Monetary Fund",
             "cat": "macroeconomic",
             "sub": "India Real GDP Growth",
             "pred": "gdp_growth_rate",
@@ -205,6 +216,7 @@ def ensure_canonical_showcase_cases(cursor, conn):
             "id": "fact-rbi-table-layout-failure",
             "doc_id": rbi_doc_id,
             "page": 89,
+            "entity": "Reserve Bank of India",
             "cat": "macroeconomic",
             "sub": "External Debt to GDP Ratio",
             "pred": "reported_ratio",
@@ -225,12 +237,12 @@ def ensure_canonical_showcase_cases(cursor, conn):
     for f in canonical_facts:
         cursor.execute("""
             INSERT OR REPLACE INTO facts (
-                id, document_id, page_number, category, subject, predicate, value,
+                id, document_id, page_number, entity, category, subject, predicate, value,
                 unit, temporal_context, scope_context, exact_quote, char_offset_start,
                 char_offset_end, confidence, is_failure_example, failure_notes, bbox
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            f["id"], f["doc_id"], f["page"], f["cat"], f["sub"], f["pred"], f["val"],
+            f["id"], f["doc_id"], f["page"], f.get("entity", "General"), f["cat"], f["sub"], f["pred"], f["val"],
             f["unit"], f["temporal"], f["scope"], f["quote"], f["start"], f["end"],
             f["conf"], f.get("is_fail", 0), f.get("fail_notes", ""), f["bbox"]
         ))

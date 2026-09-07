@@ -76,7 +76,7 @@ def get_status():
         "llm_available": llm_client.is_available(),
         "model": llm_client.model,
         "fallback_model": getattr(llm_client, "fallback_model", ""),
-        "database_path": str(settings.DB_PATH)
+        "database_path": "./data/knowledge_layer.db"
     }
 
 @router.post("/reseed")

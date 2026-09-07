@@ -14,6 +14,7 @@ def get_db_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(settings.DB_PATH, timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
+    conn.execute("PRAGMA journal_mode = WAL;")
     return conn
 
 def init_db():
@@ -58,6 +59,7 @@ def init_db():
         id TEXT PRIMARY KEY,
         document_id TEXT NOT NULL,
         page_number INTEGER NOT NULL,
+        entity TEXT DEFAULT '',
         category TEXT NOT NULL,
         subject TEXT NOT NULL,
         predicate TEXT NOT NULL,
@@ -111,6 +113,17 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_facts_category ON facts(category);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_rel_facts ON relationships(fact_id_1, fact_id_2);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_rel_docs ON relationships(doc_id_1, doc_id_2);")
+    
+    # Check and migrate entity column if missing in existing database
+    try:
+        cursor.execute("SELECT entity FROM facts LIMIT 1;")
+    except sqlite3.OperationalError:
+        try:
+            cursor.execute("ALTER TABLE facts ADD COLUMN entity TEXT DEFAULT '';")
+            logger.info("Migrated facts table: added entity column.")
+        except Exception as e:
+            logger.debug(f"Column migration for entity skipped: {e}")
+
     # Check and migrate bbox column if missing in existing database
     try:
         cursor.execute("SELECT bbox FROM facts LIMIT 1;")

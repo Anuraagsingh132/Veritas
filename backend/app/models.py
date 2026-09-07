@@ -2,7 +2,8 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 class FactBase(BaseModel):
-    category: str = Field(..., description="E.g., financial, operational, macroeconomic, corporate_governance, semantic")
+    entity: Optional[str] = Field("", description="The legal entity, organization, institution, or company this fact is about, e.g. Delhivery, RBI, IMF, Apple")
+    category: str = Field(..., description="E.g., financial, operational, macroeconomic, corporate_governance, scientific, quantitative")
     subject: str = Field(..., description="Subject of the fact, e.g. Delhivery FY24 Consolidated Revenue")
     predicate: str = Field(..., description="Attribute or relationship, e.g. reported_value, growth_rate")
     value: str = Field(..., description="Extracted numerical or semantic value")

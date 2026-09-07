@@ -58,6 +58,7 @@ def list_facts(
             document_id=r["document_id"],
             document_filename=r["document_filename"],
             page_number=r["page_number"],
+            entity=r["entity"] if "entity" in r.keys() and r["entity"] else "",
             category=r["category"],
             subject=r["subject"],
             predicate=r["predicate"],
