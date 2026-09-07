@@ -213,7 +213,11 @@ class ProcessingPipeline:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        cursor.execute("SELECT * FROM facts")
+        cursor.execute("""
+            SELECT f.* FROM facts f
+            INNER JOIN documents d ON f.document_id = d.id
+            WHERE d.status = 'ready'
+        """)
         facts = [dict(r) for r in cursor.fetchall()]
         
         if not facts:
@@ -223,16 +227,19 @@ class ProcessingPipeline:
         relationships = self.reconciler.reconcile_facts(facts)
         
         for rel in relationships:
-            cursor.execute("""
-                INSERT OR REPLACE INTO relationships (
-                    id, fact_id_1, fact_id_2, doc_id_1, doc_id_2, relationship_type,
-                    confidence, reasoning, context_difference, case_category
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                rel["id"], rel["fact_id_1"], rel["fact_id_2"], rel["doc_id_1"], rel["doc_id_2"],
-                rel["relationship_type"], rel.get("confidence", 1.0), rel["reasoning"],
-                rel.get("context_difference", ""), rel.get("case_category", "")
-            ))
+            try:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO relationships (
+                        id, fact_id_1, fact_id_2, doc_id_1, doc_id_2, relationship_type,
+                        confidence, reasoning, context_difference, case_category
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    rel["id"], rel["fact_id_1"], rel["fact_id_2"], rel["doc_id_1"], rel["doc_id_2"],
+                    rel["relationship_type"], rel.get("confidence", 1.0), rel["reasoning"],
+                    rel.get("context_difference", ""), rel.get("case_category", "")
+                ))
+            except Exception as e:
+                logger.debug(f"Skipping stale relationship insert in reconcile_all_existing: {e}")
             
         conn.commit()
         conn.close()
