@@ -15,10 +15,11 @@ class PDFProcessor:
     def __init__(self, max_pages: int = 100):
         self.max_pages = max_pages
 
-    def extract_document(self, filepath: str | Path) -> Dict[str, Any]:
+    def extract_document(self, filepath: str | Path, target_pages: Optional[List[int]] = None) -> Dict[str, Any]:
         """
         Extracts metadata and full page-by-page text content with layout cues,
         table extraction, and spatial bounding boxes.
+        Processes either a targeted list of 1-indexed page numbers or sequential pages up to max_pages.
         """
         path = Path(filepath)
         if not path.exists():
@@ -26,7 +27,13 @@ class PDFProcessor:
 
         doc = pymupdf.open(str(path))
         total_pages = len(doc)
-        pages_to_process = min(total_pages, self.max_pages)
+        
+        if target_pages:
+            page_indices = [p - 1 for p in sorted(list(set(target_pages))) if 1 <= p <= total_pages]
+            pages_to_process = len(page_indices)
+        else:
+            pages_to_process = min(total_pages, self.max_pages)
+            page_indices = list(range(pages_to_process))
         
         metadata = doc.metadata or {}
         extracted_pages = []
@@ -34,7 +41,7 @@ class PDFProcessor:
         total_chars = 0
         total_tables = 0
 
-        for page_idx in range(pages_to_process):
+        for page_idx in page_indices:
             page_num = page_idx + 1
             page = doc[page_idx]
             
@@ -170,24 +177,35 @@ class PDFProcessor:
                 start_idx = idx
                 end_idx = idx + len(clean_quote)
             else:
-                # 3. Normalized whitespace & currency symbol match (e.g. ₹ vs Rs)
-                norm_page = re.sub(r'\s+', ' ', page_text)
-                norm_quote = re.sub(r'\s+', ' ', clean_quote)
-                norm_page_sub = norm_page.replace('Rs.', '₹').replace('Rs', '₹')
-                norm_quote_sub = norm_quote.replace('Rs.', '₹').replace('Rs', '₹')
-                
-                idx = norm_page_sub.lower().find(norm_quote_sub.lower())
-                if idx != -1:
-                    start_idx = max(0, min(idx, len(page_text) - 1))
-                    end_idx = min(len(page_text), start_idx + len(clean_quote))
-                else:
-                    # 4. Substring prefix match (first 30 characters)
+                # 3. Regex whitespace-flexible search on uncompressed page text (prevents offset drift)
+                try:
+                    pattern = re.escape(clean_quote)
+                    pattern = re.sub(r'\\\s+', r'\\s+', pattern)
+                    pattern = pattern.replace('₹', r'(?:₹|Rs\.?|INR)')
+                    m = re.search(pattern, page_text, re.IGNORECASE)
+                    if m:
+                        start_idx = m.start()
+                        end_idx = m.end()
+                except Exception:
+                    pass
+
+                # 4. Substring prefix match on uncompressed page text
+                if start_idx == -1:
                     sub = clean_quote[:min(len(clean_quote), 30)].strip()
                     if len(sub) >= 6:
-                        idx = page_text.lower().find(sub.lower())
-                        if idx != -1:
-                            start_idx = idx
-                            end_idx = min(len(page_text), idx + len(clean_quote))
+                        try:
+                            sub_pattern = re.escape(sub)
+                            sub_pattern = re.sub(r'\\\s+', r'\\s+', sub_pattern)
+                            sub_pattern = sub_pattern.replace('₹', r'(?:₹|Rs\.?|INR)')
+                            m_sub = re.search(sub_pattern, page_text, re.IGNORECASE)
+                            if m_sub:
+                                start_idx = m_sub.start()
+                                end_idx = min(len(page_text), m_sub.start() + len(clean_quote))
+                        except Exception:
+                            idx = page_text.lower().find(sub.lower())
+                            if idx != -1:
+                                start_idx = idx
+                                end_idx = min(len(page_text), idx + len(clean_quote))
 
         # If not grounded in page text, reject quote
         if start_idx == -1 or end_idx == -1:

@@ -72,13 +72,14 @@ def get_four_required_cases():
         JOIN facts f2 ON r.fact_id_2 = f2.id
         JOIN documents d1 ON f1.document_id = d1.id
         JOIN documents d2 ON f2.document_id = d2.id
-        WHERE r.relationship_type = ?
-        ORDER BY r.confidence DESC, r.created_at DESC
+        WHERE (r.case_category = ? OR r.relationship_type = ?)
+          AND d1.filename != d2.filename
+        ORDER BY (CASE WHEN r.case_category = ? THEN 1 ELSE 0 END) DESC, r.confidence DESC, r.created_at ASC
         LIMIT 1
     """
 
     # 1. Case 1: Corroboration
-    cursor.execute(query_template, ("corroboration",))
+    cursor.execute(query_template, ("case_1_corroboration", "corroboration", "case_1_corroboration"))
     row1 = cursor.fetchone()
     if row1:
         f1 = _row_to_fact_response("f1", row1)
@@ -118,7 +119,7 @@ def get_four_required_cases():
         ))
 
     # 2. Case 2: Genuine Contradiction
-    cursor.execute(query_template, ("genuine_contradiction",))
+    cursor.execute(query_template, ("case_2_contradiction", "genuine_contradiction", "case_2_contradiction"))
     row2 = cursor.fetchone()
     if row2:
         f1 = _row_to_fact_response("f1", row2)
@@ -158,7 +159,7 @@ def get_four_required_cases():
         ))
 
     # 3. Case 3: Contextual Reconciliation
-    cursor.execute(query_template, ("contextual_reconciliation",))
+    cursor.execute(query_template, ("case_3_contextual", "contextual_reconciliation", "case_3_contextual"))
     row3 = cursor.fetchone()
     if row3:
         f1 = _row_to_fact_response("f1", row3)

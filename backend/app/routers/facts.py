@@ -11,10 +11,12 @@ def list_facts(
     doc_id: Optional[str] = Query(None, description="Filter by document ID"),
     category: Optional[str] = Query(None, description="Filter by fact category"),
     q: Optional[str] = Query(None, description="Keyword search across subject/value/quote"),
-    failures_only: bool = Query(False, description="Filter for extraction failure cases")
+    failures_only: bool = Query(False, description="Filter for extraction failure cases"),
+    limit: int = Query(100, ge=1, le=500, description="Max facts to return"),
+    offset: int = Query(0, ge=0, description="Offset for pagination")
 ):
     """
-    Queries facts with multi-criteria filtering and full-text keyword matching.
+    Queries facts with multi-criteria filtering, full-text keyword matching, and pagination.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -43,7 +45,8 @@ def list_facts(
         like_term = f"%{q}%"
         params.extend([like_term, like_term, like_term, like_term])
         
-    query += " ORDER BY f.created_at DESC"
+    query += " ORDER BY f.created_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
     
     cursor.execute(query, params)
     rows = cursor.fetchall()

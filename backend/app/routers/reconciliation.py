@@ -11,7 +11,9 @@ pipeline = ProcessingPipeline()
 @router.get("", response_model=List[RelationshipResponse])
 def list_relationships(
     type: Optional[str] = Query(None, description="corroboration, genuine_contradiction, contextual_reconciliation, extraction_failure"),
-    case: Optional[str] = Query(None, description="Filter by case (case_1_corroboration, case_2_contradiction, etc.)")
+    case: Optional[str] = Query(None, description="Filter by case (case_1_corroboration, case_2_contradiction, etc.)"),
+    limit: int = Query(100, ge=1, le=500, description="Max relationships to return"),
+    offset: int = Query(0, ge=0, description="Offset for pagination")
 ):
     """
     Retrieves cross-document reconciled relationships with both linked facts and source evidence.
@@ -46,7 +48,8 @@ def list_relationships(
         query += " AND r.case_category = ?"
         params.append(case)
         
-    query += " ORDER BY r.created_at DESC"
+    query += " ORDER BY r.created_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
     
     cursor.execute(query, params)
     rows = cursor.fetchall()

@@ -110,6 +110,7 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_facts_doc ON facts(document_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_facts_category ON facts(category);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_rel_facts ON relationships(fact_id_1, fact_id_2);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_rel_docs ON relationships(doc_id_1, doc_id_2);")
     # Check and migrate bbox column if missing in existing database
     try:
         cursor.execute("SELECT bbox FROM facts LIMIT 1;")

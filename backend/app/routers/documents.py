@@ -84,16 +84,33 @@ async def upload_document(
     """
     Accepts new PDF uploads and triggers background text extraction,
     fact extraction, and incremental reconciliation against existing knowledge.
+    Enforces a 50MB file size limit.
     """
     safe_filename = Path(file.filename).name
     if not safe_filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
+    MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
     doc_id = f"doc-{uuid.uuid4().hex[:8]}"
     upload_path = settings.UPLOAD_DIR / f"{doc_id}_{safe_filename}"
     
-    with open(upload_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    total_size = 0
+    try:
+        with open(upload_path, "wb") as buffer:
+            while chunk := await file.read(1024 * 1024):  # 1MB chunks
+                total_size += len(chunk)
+                if total_size > MAX_FILE_SIZE:
+                    buffer.close()
+                    if upload_path.exists():
+                        upload_path.unlink()
+                    raise HTTPException(status_code=413, detail="File size exceeds maximum permitted limit (50 MB).")
+                buffer.write(chunk)
+    except HTTPException:
+        raise
+    except Exception as e:
+        if upload_path.exists():
+            upload_path.unlink()
+        raise HTTPException(status_code=500, detail=f"Failed to save uploaded file: {str(e)}")
 
     # Ingest in background
     background_tasks.add_task(pipeline.ingest_pdf, upload_path, "user-upload", doc_id)
@@ -107,12 +124,26 @@ async def upload_document(
 
 @router.delete("/{doc_id}")
 def delete_document(doc_id: str):
-    """Deletes a document and cascades to its facts and relationships."""
+    """Deletes a document and cascades to its facts, pages, relationships, and disk file."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
-    cursor.execute("DELETE FROM facts WHERE document_id = ?", (doc_id,))
+    cursor.execute("SELECT filepath FROM documents WHERE id = ?", (doc_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    filepath = row["filepath"]
+    if filepath and Path(filepath).exists():
+        try:
+            Path(filepath).unlink()
+        except Exception as e:
+            logger.warning(f"Could not unlink file {filepath}: {e}")
+
     cursor.execute("DELETE FROM relationships WHERE doc_id_1 = ? OR doc_id_2 = ?", (doc_id, doc_id))
+    cursor.execute("DELETE FROM facts WHERE document_id = ?", (doc_id,))
+    cursor.execute("DELETE FROM document_pages WHERE document_id = ?", (doc_id,))
+    cursor.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
     conn.commit()
     conn.close()
     return {"message": f"Document {doc_id} deleted successfully."}

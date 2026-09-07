@@ -29,7 +29,8 @@ class ProcessingPipeline:
         filepath: str | Path,
         dataset_tag: str = "uploaded",
         doc_id: Optional[str] = None,
-        max_pages: Optional[int] = None
+        max_pages: Optional[int] = None,
+        target_pages: Optional[List[int]] = None
     ) -> Dict[str, Any]:
         """
         Ingests a PDF, extracts layout & tables, extracts facts via LLM or heuristics,
@@ -56,9 +57,9 @@ class ProcessingPipeline:
             logger.info(f"Extracting PDF: {filename}...")
             if max_pages:
                 custom_processor = PDFProcessor(max_pages=max_pages)
-                doc_data = custom_processor.extract_document(path)
+                doc_data = custom_processor.extract_document(path, target_pages=target_pages)
             else:
-                doc_data = self.pdf_processor.extract_document(path)
+                doc_data = self.pdf_processor.extract_document(path, target_pages=target_pages)
             
             pages_to_process = doc_data["pages"]
             total_target = len(pages_to_process)
@@ -136,12 +137,14 @@ class ProcessingPipeline:
             # 5. Incremental Reconciliation (Brownie point!)
             # Retrieve existing facts from OTHER documents that are verified and ready
             cursor.execute("""
-                SELECT f.* FROM facts f
+                SELECT f.*, d.filename as document_filename FROM facts f
                 INNER JOIN documents d ON f.document_id = d.id
                 WHERE f.document_id != ? AND d.status = 'ready'
             """, (doc_id,))
             existing_rows = cursor.fetchall()
             existing_facts = [dict(r) for r in existing_rows]
+            for nf in all_new_facts:
+                nf["document_filename"] = filename
 
             new_relationships = []
             if existing_facts and all_new_facts:
@@ -214,7 +217,7 @@ class ProcessingPipeline:
         cursor = conn.cursor()
         
         cursor.execute("""
-            SELECT f.* FROM facts f
+            SELECT f.*, d.filename as document_filename FROM facts f
             INNER JOIN documents d ON f.document_id = d.id
             WHERE d.status = 'ready'
         """)

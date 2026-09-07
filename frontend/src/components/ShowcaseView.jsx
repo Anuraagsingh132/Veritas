@@ -38,7 +38,7 @@ export default function ShowcaseView({ cases, loading }) {
           label: 'Genuine Contradiction',
           badgeClass: 'bg-rose-500/10 border-rose-500/30 text-rose-400',
           icon: <AlertTriangle className="h-4 w-4 text-rose-400 flex-shrink-0" />,
-          relationText: 'Empirical Discrepancy (80 bps Divergence)',
+          relationText: 'Direct Empirical Discrepancy',
           relationSymbol: '≠',
           relationClass: 'text-rose-400 bg-rose-950/60 border-rose-500/30'
         };

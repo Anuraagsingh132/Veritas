@@ -44,6 +44,29 @@ STOP_WORDS = {
     "from", "as", "with", "that", "this", "it", "are", "were", "be", "or", "total"
 }
 
+def normalize_numeric_value_and_unit(val_str: Any, unit_str: Any) -> Tuple[Optional[float], str]:
+    """
+    Normalizes numeric values across Crores and Millions to a standard Crores scale:
+    1 Crore = 10 Million -> Value in Millions / 10 = Value in Crores.
+    """
+    if val_str is None:
+        return None, ""
+    try:
+        clean_val = float(str(val_str).replace(",", "").strip())
+    except (ValueError, TypeError):
+        return None, str(unit_str or "").lower().strip()
+
+    clean_unit = str(unit_str or "").lower().strip()
+    crore_units = {"cr", "crore", "crores", "inr crore", "inr crores", "₹ crore", "₹ cr"}
+    million_units = {"m", "mn", "million", "millions", "inr million", "inr millions", "₹ million", "₹ in million", "in million"}
+
+    if any(u in clean_unit for u in million_units):
+        return clean_val / 10.0, "crores"
+    elif any(u in clean_unit for u in crore_units):
+        return clean_val, "crores"
+    
+    return clean_val, clean_unit
+
 class FactReconciler:
     """
     Cross-document reasoning engine that clusters related facts,
@@ -124,10 +147,32 @@ class FactReconciler:
                 if fa.get("document_id") == fb.get("document_id"):
                     continue
 
+                # Filter out duplicate uploads of the exact same underlying file
+                fn_a = re.sub(r'^doc-[a-f0-9]+_', '', fa.get("document_filename") or fa.get("filename", "")).lower().strip()
+                fn_b = re.sub(r'^doc-[a-f0-9]+_', '', fb.get("document_filename") or fb.get("filename", "")).lower().strip()
+                if fn_a and fn_b and fn_a == fn_b:
+                    continue
+
                 pair_key = tuple(sorted([fa["id"], fb["id"]]))
                 if pair_key in seen_pairs:
                     continue
                 seen_pairs.add(pair_key)
+
+                # Candidate Pre-Filtering: Protect against comparing incompatible categories or value types
+                cat_a = str(fa.get("category", "")).lower().strip()
+                cat_b = str(fb.get("category", "")).lower().strip()
+                val_a = str(fa.get("value", "")).strip().replace(",", "")
+                val_b = str(fb.get("value", "")).strip().replace(",", "")
+                is_num_a = any(c.isdigit() for c in val_a)
+                is_num_b = any(c.isdigit() for c in val_b)
+
+                # Do not pair a purely textual list with a numerical metric unless it's a failure example
+                if is_num_a != is_num_b and not (fa.get("is_failure_example") or fb.get("is_failure_example")):
+                    continue
+
+                # Do not pair disparate non-quantitative categories (e.g. governance vs environmental)
+                if cat_a and cat_b and cat_a != cat_b and cat_a != "quantitative" and cat_b != "quantitative":
+                    continue
 
                 score = self._compute_similarity(fa, fb)
                 if score > 0.15:  # Sufficient semantic overlap
@@ -236,6 +281,9 @@ class FactReconciler:
         scope_a = str(fa.get("scope_context", "")).strip().lower()
         scope_b = str(fb.get("scope_context", "")).strip().lower()
 
+        num_a, norm_unit_a = normalize_numeric_value_and_unit(val_a, unit_a)
+        num_b, norm_unit_b = normalize_numeric_value_and_unit(val_b, unit_b)
+
         # Check for Extraction Failure flag (Case 4)
         if fa.get("is_failure_example") or fb.get("is_failure_example"):
             failure_fact = fa if fa.get("is_failure_example") else fb
@@ -252,11 +300,10 @@ class FactReconciler:
                 "case_category": "case_4_failure"
             }
 
-        # Case 1: Corroboration (exact value equality, or numeric difference <= 1% due to rounding)
-        try:
-            num_a = float(val_a)
-            num_b = float(val_b)
-            if abs(num_a - num_b) < 1e-5 or (max(num_a, num_b) > 0 and abs(num_a - num_b) / max(num_a, num_b) < 0.01):
+        # Case 1: Corroboration (exact value equality or normalized numeric difference <= 1% due to rounding/unit scale)
+        if num_a is not None and num_b is not None:
+            denom = max(abs(num_a), abs(num_b))
+            if abs(num_a - num_b) < 1e-4 or (denom > 0 and abs(num_a - num_b) / denom < 0.01):
                 return {
                     "id": rel_id,
                     "fact_id_1": fa["id"],
@@ -265,24 +312,48 @@ class FactReconciler:
                     "doc_id_2": fb["document_id"],
                     "relationship_type": "corroboration",
                     "confidence": 0.95,
-                    "reasoning": f"Both documents independently affirm the value of {fa.get('subject')} at approximately '{val_a}', confirming ground truth across independent publications.",
+                    "reasoning": f"Both documents independently affirm the value of {fa.get('subject')} at approximately '{val_a} {fa.get('unit', '')}' (normalized: {num_a:.2f} {norm_unit_a}), confirming ground truth across independent publications.",
                     "context_difference": "none",
                     "case_category": "case_1_corroboration"
                 }
-        except (ValueError, TypeError):
-            if val_a and val_a == val_b:
-                return {
-                    "id": rel_id,
-                    "fact_id_1": fa["id"],
-                    "fact_id_2": fb["id"],
-                    "doc_id_1": fa["document_id"],
-                    "doc_id_2": fb["document_id"],
-                    "relationship_type": "corroboration",
-                    "confidence": 0.95,
-                    "reasoning": f"Both sources report the identical assertion '{val_a}' for {fa.get('subject')}.",
-                    "context_difference": "none",
-                    "case_category": "case_1_corroboration"
-                }
+        elif val_a and val_a == val_b:
+            return {
+                "id": rel_id,
+                "fact_id_1": fa["id"],
+                "fact_id_2": fb["id"],
+                "doc_id_1": fa["document_id"],
+                "doc_id_2": fb["document_id"],
+                "relationship_type": "corroboration",
+                "confidence": 0.95,
+                "reasoning": f"Both sources report the identical assertion '{val_a}' for {fa.get('subject')}.",
+                "context_difference": "none",
+                "case_category": "case_1_corroboration"
+            }
+
+        # Case 3: Contextual Reconciliation via Scope Difference (e.g. Standalone vs Consolidated)
+        is_scope_diff = (scope_a and scope_b and scope_a != scope_b) or \
+                        ("standalone" in scope_a and "consolidated" in scope_b) or \
+                        ("consolidated" in scope_a and "standalone" in scope_b) or \
+                        ("standalone" in (fa.get("subject", "") + fa.get("exact_quote", "")).lower() and \
+                         "consolidated" in (fb.get("subject", "") + fb.get("exact_quote", "")).lower()) or \
+                        ("consolidated" in (fa.get("subject", "") + fa.get("exact_quote", "")).lower() and \
+                         "standalone" in (fb.get("subject", "") + fb.get("exact_quote", "")).lower())
+
+        if is_scope_diff:
+            scope_desc_a = "Standalone" if "standalone" in (scope_a + fa.get("subject", "") + fa.get("exact_quote", "")).lower() else (scope_a or "Reported")
+            scope_desc_b = "Consolidated" if "consolidated" in (scope_b + fb.get("subject", "") + fb.get("exact_quote", "")).lower() else (scope_b or "Reported")
+            return {
+                "id": rel_id,
+                "fact_id_1": fa["id"],
+                "fact_id_2": fb["id"],
+                "doc_id_1": fa["document_id"],
+                "doc_id_2": fb["document_id"],
+                "relationship_type": "contextual_reconciliation",
+                "confidence": 0.94,
+                "reasoning": f"Apparent conflict is resolved by reporting scope: Document A reflects {scope_desc_a} operations ('{val_a} {fa.get('unit', '')}') whereas Document B reflects {scope_desc_b} group performance ('{val_b} {fb.get('unit', '')}'). Both figures are valid within their respective accounting boundaries.",
+                "context_difference": "scope",
+                "case_category": "case_3_contextual"
+            }
 
         # Case 3: Contextual Reconciliation via Temporal Difference
         if temp_a and temp_b and temp_a != temp_b:
@@ -299,9 +370,8 @@ class FactReconciler:
                 "case_category": "case_3_contextual"
             }
 
-        # Case 3: Contextual Reconciliation via Unit / Scope Difference
-        if (unit_a and unit_b and unit_a != unit_b) or (scope_a and scope_b and scope_a != scope_b):
-            dim = "units" if (unit_a != unit_b) else "scope"
+        # Case 3: Contextual Reconciliation via Unit Difference
+        if unit_a and unit_b and norm_unit_a != norm_unit_b:
             return {
                 "id": rel_id,
                 "fact_id_1": fa["id"],
@@ -310,24 +380,39 @@ class FactReconciler:
                 "doc_id_2": fb["document_id"],
                 "relationship_type": "contextual_reconciliation",
                 "confidence": 0.90,
-                "reasoning": f"Apparent conflict is resolved by differences in reporting {dim}: Document A reports {fa.get('scope_context', '')} in {fa.get('unit', '')} whereas Document B reports {fb.get('scope_context', '')} in {fb.get('unit', '')}.",
-                "context_difference": dim,
+                "reasoning": f"Apparent conflict is resolved by unit differences: Document A reports in {fa.get('unit', '')} whereas Document B reports in {fb.get('unit', '')}.",
+                "context_difference": "units",
                 "case_category": "case_3_contextual"
             }
 
-        # Case 2: Genuine Contradiction (conflicting values for same temporal period and scope)
-        if val_a != val_b and (not temp_a or not temp_b or temp_a == temp_b):
-            return {
-                "id": rel_id,
-                "fact_id_1": fa["id"],
-                "fact_id_2": fb["id"],
-                "doc_id_1": fa["document_id"],
-                "doc_id_2": fb["document_id"],
-                "relationship_type": "genuine_contradiction",
-                "confidence": 0.93,
-                "reasoning": f"Conflicting values reported for the same subject ({fa.get('subject')}) under identical scope: Document A reports '{val_a}' while Document B reports '{val_b}'. This reflects genuine empirical or methodological disagreement.",
-                "context_difference": "methodology",
-                "case_category": "case_2_contradiction"
-            }
+        # Case 2: Genuine Contradiction (conflicting values for same subject, metric & scope)
+        pred_a = str(fa.get("predicate", "")).lower().strip()
+        pred_b = str(fb.get("predicate", "")).lower().strip()
+        cat_a = str(fa.get("category", "")).lower().strip()
+        cat_b = str(fb.get("category", "")).lower().strip()
+
+        predicates_compatible = (pred_a == pred_b) or \
+            (any(w in pred_a for w in ["revenue", "sales"]) and any(w in pred_b for w in ["revenue", "sales"])) or \
+            (any(w in pred_a for w in ["gdp", "growth"]) and any(w in pred_b for w in ["gdp", "growth"])) or \
+            (pred_a == "stated_value" and pred_b == "stated_value")
+
+        categories_compatible = (cat_a == cat_b) or cat_a == "quantitative" or cat_b == "quantitative"
+        both_numeric = (num_a is not None and num_b is not None)
+        both_text = (num_a is None and num_b is None and val_a and val_b)
+
+        if val_a != val_b and predicates_compatible and categories_compatible and (both_numeric or both_text):
+            if not temp_a or not temp_b or temp_a == temp_b:
+                return {
+                    "id": rel_id,
+                    "fact_id_1": fa["id"],
+                    "fact_id_2": fb["id"],
+                    "doc_id_1": fa["document_id"],
+                    "doc_id_2": fb["document_id"],
+                    "relationship_type": "genuine_contradiction",
+                    "confidence": 0.93,
+                    "reasoning": f"Conflicting values reported for the same subject ({fa.get('subject')}) and metric under identical scope: Document A reports '{val_a} {fa.get('unit', '')}' while Document B reports '{val_b} {fb.get('unit', '')}'. This reflects genuine empirical or institutional forecast disagreement.",
+                    "context_difference": "methodology",
+                    "case_category": "case_2_contradiction"
+                }
 
         return None
