@@ -17,8 +17,8 @@
 
 ## 📺 Demo Video & Submission Details
 
-- **Demo Video:** [Watch 3-Minute Walkthrough]([https://youtu.be/placeholder-demo-link](https://drive.google.com/file/d/17u7gS9e5Yl9VICUFr8CxwHHP8DqgFEfk/view?usp=drive_link)) *(≤ 3 minutes, public / unlisted; accessible to the Superjoin hiring team)*
-- 
+- **Demo Video:** [Watch 3-Minute Walkthrough](https://drive.google.com/file/d/17u7gS9e5Yl9VICUFr8CxwHHP8DqgFEfk/view?usp=drive_link) *(≤ 3 minutes, public / unlisted; accessible to the Superjoin hiring team)*
+  
 - **Submission Form:** Submitted via [Superjoin Official Submission Form](https://forms.gle/3fLdBQ2D6Zm2Gqtv7)
 
 
