@@ -9,17 +9,25 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-def get_db_connection() -> sqlite3.Connection:
+def get_db_connection(auto_init: bool = True) -> sqlite3.Connection:
     """Returns a connection to the SQLite database with Row factory enabled."""
+    db_file = Path(settings.DB_PATH)
+    db_file.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(settings.DB_PATH, timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
     conn.execute("PRAGMA journal_mode = WAL;")
+
+    if auto_init:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='documents'")
+        if not cursor.fetchone():
+            init_db(existing_conn=conn)
     return conn
 
-def init_db():
+def init_db(existing_conn: Optional[sqlite3.Connection] = None):
     """Initializes database tables and indexes."""
-    conn = get_db_connection()
+    conn = existing_conn or get_db_connection(auto_init=False)
     cursor = conn.cursor()
     
     cursor.execute("""
@@ -185,7 +193,8 @@ def init_db():
         logger.debug(f"Relationships unique index migration skipped/handled: {e}")
 
     conn.commit()
-    conn.close()
+    if not existing_conn:
+        conn.close()
     logger.info("Database initialized successfully at %s", settings.DB_PATH)
 
 if __name__ == "__main__":

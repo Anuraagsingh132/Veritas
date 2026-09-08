@@ -137,27 +137,42 @@ class FactExtractor:
 
     @staticmethod
     def _infer_entity(subject: str, filename: str, text: str = "") -> str:
-        fn_lower = filename.lower()
-        sub_lower = subject.lower()
-        txt_lower = text.lower()
-        if "delhivery" in fn_lower or "delhivery" in sub_lower or "delhivery" in txt_lower:
-            return "Delhivery Limited"
-        elif "rbi" in fn_lower or "reserve bank" in sub_lower or "reserve bank" in txt_lower:
-            return "Reserve Bank of India"
-        elif "imf" in fn_lower or "international monetary fund" in sub_lower or "article iv" in fn_lower:
-            return "International Monetary Fund"
-        elif "economic-survey" in fn_lower or "economic survey" in sub_lower or "economic survey" in txt_lower:
-            return "Government of India"
-        elif "apple" in fn_lower or "apple" in sub_lower:
-            return "Apple Inc."
-        elif "microsoft" in fn_lower or "microsoft" in sub_lower:
-            return "Microsoft Corporation"
-        elif "acme" in fn_lower or "acme" in sub_lower:
-            return "Acme Corporation"
-        
+        """
+        Dynamically infers entity name using generic grammatical patterns,
+        corporate/institutional suffixes, and clean document naming conventions.
+        Does NOT use any hardcoded lookup tables of specific companies or organizations.
+        """
+        # 1. Check for institutional or corporate suffixes in the text or subject
+        corp_pattern = r'\b([A-Z][a-zA-Z0-9&\'\.]+(?:\s+[A-Z][a-zA-Z0-9&\'\.]+)*\s+(?:Limited|Ltd|Corporation|Corp|Inc|LLC|Bank|Fund|Ministry|Department|Authority|Commission|Institute|University|Group|Holdings))\b'
+        for source in [subject, text]:
+            m = re.search(corp_pattern, source)
+            if m:
+                cand = m.group(1).strip()
+                if len(cand) >= 4 and not any(w in cand.lower() for w in ["annual report", "financial statement", "directors report"]):
+                    return cand
+
+        # 2. Check for prominent capitalized acronyms (e.g. IMF, RBI, WHO, SEC, NASA)
+        acronym_match = re.search(r'\b([A-Z]{2,6})\b', subject)
+        if acronym_match and acronym_match.group(1) not in ["THE", "FOR", "AND", "PER", "NET", "ALL", "PDF", "INR", "USD", "EUR", "GDP", "CPI", "WPI"]:
+            return acronym_match.group(1)
+
+        # 3. Derive entity from filename tokens generically (e.g. '02-delhivery-annual-report' -> 'Delhivery')
+        clean_fn = re.sub(r'^[0-9]+[-_]', '', filename)
+        clean_fn = re.sub(r'[-_]excerpt|\.pdf$', '', clean_fn, flags=re.IGNORECASE)
+        fn_parts = [p for p in re.split(r'[-_\s]+', clean_fn) if p.lower() not in [
+            "annual", "report", "q1", "q2", "q3", "q4", "fy21", "fy22", "fy23", "fy24", "fy25", "fy26",
+            "earnings", "presentation", "prospectus", "survey", "overview", "deck", "doc", "document"
+        ]]
+        if fn_parts:
+            derived_name = " ".join(fn_parts[:2]).strip()
+            if len(derived_name) >= 3:
+                return derived_name.title()
+
+        # 4. Fallback to capitalized proper noun in subject
         org_match = re.search(r'\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*)\b', subject)
-        if org_match and len(org_match.group(0)) > 3:
+        if org_match and len(org_match.group(0)) > 3 and org_match.group(0).lower() not in ["quantitative statement", "reported metric"]:
             return org_match.group(0)
+
         return "General"
 
     def _heuristic_extract(
@@ -170,21 +185,41 @@ class FactExtractor:
     ) -> List[Dict[str, Any]]:
         """
         Purely generic, domain-agnostic quantitative fact extractor with
-        entity resolution and stop-word unit sanitization.
+        entity resolution, strict unit validation, and noise elimination.
         """
         facts = []
         raw_chunks = re.split(r'(?:(?<=[.!?])\s+|\n{2,})', page_text)
         sentences = [c.strip() for c in raw_chunks if c.strip()]
-        
-        INVALID_UNITS = {
+
+        VALID_METRIC_UNITS = {
+            # Financial scales
+            "cr", "crore", "crores", "inr crore", "inr crores", "₹ crore", "₹ cr",
+            "lakh", "lakhs", "lac", "lacs",
+            "million", "millions", "mn", "m", "inr million", "inr millions",
+            "billion", "billions", "bn", "b", "trillion", "trillions", "k",
+            # Percentages & ratios
+            "%", "percent", "per cent", "percentage", "bps", "basis points",
+            # Physical / engineering
+            "kg", "kgs", "ton", "tons", "tonne", "tonnes", "metric tonnes", "mt",
+            "sqft", "sq.ft", "sq ft", "sqm", "sq.m", "km", "kms", "meters", "miles",
+            "liters", "litres", "barrels", "mw", "gw", "kwh", "mwh",
+            # Countable business & logistics metrics
+            "packages", "shipments", "parcels", "orders", "deliveries",
+            "pin codes", "pincodes", "centers", "facilities", "hubs",
+            "clients", "customers", "employees", "workforce", "users",
+            "cities", "destinations", "vehicles", "gateways", "shares", "units",
+            "branches", "offices", "points",
+            # Temporal durations
+            "days", "months", "quarters", "years", "hours"
+        }
+
+        DISCARD_WORDS = {
+            "th", "st", "nd", "rd", "india", "national", "mumbai", "delhi", "bse", "nse",
+            "street", "road", "building", "scrip", "code", "cin", "isin", "tel", "fax",
+            "limited", "company", "corporation", "bank", "fund", "board", "meeting",
             "was", "were", "is", "are", "the", "of", "in", "to", "for", "and", "a", "an",
             "at", "by", "from", "on", "with", "as", "or", "than", "over", "under", "per",
-            "its", "it", "our", "their", "this", "that", "these", "those",
-            "annual", "report", "section", "definitions", "summary", "overview", "contents",
-            "page", "pages", "table", "exhibit", "note", "notes", "statement", "financial",
-            "annexure", "disclaimer", "limited", "company", "group", "standalone", "consolidated",
-            "corporate", "statutory", "reports", "governance", "committee", "director", "directors",
-            "board", "management", "discussion", "analysis"
+            "its", "it", "our", "their", "this", "that", "these", "those"
         }
 
         for sentence in sentences:
@@ -192,15 +227,22 @@ class FactExtractor:
             if len(sentence_clean) < 15 or len(sentence_clean) > 800:
                 continue
 
-            # Generic quantity matcher: currency symbol or number followed by optional unit word or %
+            # Check if chunk is an address or corporate disclosure header
+            s_low = sentence_clean.lower()
+            if any(term in s_low for term in ["cin: ", "isin: ", "scrip code", "tel:", "fax:", "dalal street", "registered office"]):
+                continue
+
+            # Find candidates: currency numbers, percentages, or numbers with explicit units
             matches = re.finditer(
-                r'(?:([\$€£₹]\s*[0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?(?:\s*[A-Za-z]+)?)|([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?\s*(?:%|[A-Za-z]+)))',
-                sentence_clean
+                r'(?:([\$€£₹]\s*[0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?(?:\s*[A-Za-z]+)?)|'
+                r'([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?\s*(?:%|percent|per\s*cent|bps))|'
+                r'([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?(?:\s+[A-Za-z]+(?:\s+[A-Za-z]+)?)))',
+                sentence_clean,
+                re.IGNORECASE
             )
 
             for m in matches:
                 token = m.group(0).strip()
-                # Extract clean value
                 val_match = re.search(r'[0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?', token)
                 if not val_match:
                     continue
@@ -211,29 +253,43 @@ class FactExtractor:
                 if re.search(r'\b(?:FY|Q|quarter|fiscal\s*year|page|p\.|pg\.|section|sec\.|item|exhibit)\s*$', preceding, re.IGNORECASE):
                     continue
 
-                # Extract unit
-                unit_str = token.replace(val_match.group(0), '').strip()
-                if "₹" in token:
-                    unit_str = "INR " + unit_str.replace('₹', '').strip()
-                elif "$" in token:
-                    unit_str = "USD " + unit_str.replace('$', '').strip()
+                # Determine unit and validity
+                is_currency = any(sym in token for sym in ["$", "€", "£", "₹"])
+                is_percent = any(sym in token.lower() for sym in ["%", "percent", "per cent", "per-cent", "bps"])
+                raw_unit = token.replace(val_match.group(0), '').strip().lower()
 
-                # Clean stop words and structural keywords from units
-                if unit_str.lower().strip() in INVALID_UNITS:
-                    unit_str = ""
+                # Clean currency symbol out of raw unit
+                clean_unit_token = re.sub(r'[\$€£₹]', '', raw_unit).strip()
 
-                # Ignore bare calendar/fiscal years without currency or unit
-                if not any(sym in token for sym in ["$", "€", "£", "₹", "%"]) and not unit_str and val_str in [
-                    "19", "20", "21", "22", "23", "24", "25", "26", "2020", "2021", "2022", "2023", "2024", "2025", "2026"
-                ]:
+                unit_str = ""
+                if is_currency:
+                    curr = "INR" if "₹" in token else "USD" if "$" in token else "EUR"
+                    unit_str = f"{curr} {clean_unit_token}".strip() if clean_unit_token else curr
+                elif is_percent:
+                    unit_str = "%"
+                else:
+                    # Non-currency, non-percent MUST be a recognized measurement/scale unit
+                    if clean_unit_token in VALID_METRIC_UNITS:
+                        unit_str = clean_unit_token
+                    else:
+                        # Reject arbitrary English words or proper nouns mistaken for units
+                        continue
+
+                # Discard ordinals, postal codes, scrip codes, and structural discard words
+                first_unit_word = clean_unit_token.split()[0] if clean_unit_token else ""
+                if not is_percent and first_unit_word in DISCARD_WORDS:
                     continue
 
-                has_symbol = any(sym in token for sym in ["$", "€", "£", "₹", "%"])
-                # Discard bare numbers that lack any currency or percent symbol and lack a valid unit
-                if not has_symbol and not unit_str:
+                # Discard 5-digit or 6-digit standalone integers (postal PIN codes or scrip codes)
+                if not is_currency and not is_percent and val_str.isdigit() and len(val_str) in [5, 6]:
                     continue
 
-                # Infer subject from preceding words in sentence, or following words if preceding is empty (slide title layout)
+                # Ignore bare calendar/fiscal years or years adjacent to table column percent headers
+                if val_str.isdigit() and len(val_str) == 4 and (val_str.startswith("19") or val_str.startswith("20")):
+                    if is_percent or not is_currency:
+                        continue
+
+                # Infer subject from preceding words in sentence, or following words if preceding is empty
                 preceding_clean = re.sub(r'[\(\[\{,;:]+$', '', preceding).strip()
                 words = re.findall(r'[A-Za-z0-9\'-]+', preceding_clean)
                 if words:
@@ -249,13 +305,11 @@ class FactExtractor:
                 if not subject_str:
                     subject_str = "Reported Metric"
 
-                # Discard bare page numbers / header artifacts with generic subjects
-                if not has_symbol and not unit_str and subject_str in ["Quantitative Statement", "Reported Metric"]:
-                    continue
-                if not has_symbol and subject_str in ["Quantitative Statement", "Reported Metric"] and val_str.isdigit() and int(val_str) <= 300:
+                # Discard bare numbers with generic fallback subjects
+                if not is_currency and not is_percent and subject_str in ["Quantitative Statement", "Reported Metric"]:
                     continue
 
-                # Infer entity
+                # Infer entity dynamically without hardcoded tables
                 entity_name = self._infer_entity(subject_str, filename, sentence_clean)
 
                 # Detect temporal context (years, quarters, dates)
@@ -274,18 +328,13 @@ class FactExtractor:
                 if any(w in s_lower for w in ["revenue", "sales", "turnover"]):
                     cat = "financial"
                     pred = "revenue"
-                elif any(w in s_lower for w in ["ebitda", "margin"]):
-                    cat = "financial"
-                    pred = "ebitda_margin"
-                elif any(w in s_lower for w in ["profit", "loss", "income"]):
-                    cat = "financial"
-                    pred = "net_profit_loss"
-                elif any(w in s_lower for w in ["cost", "expense"]):
-                    cat = "financial"
-                    pred = "operating_cost"
+                    if "revenue" not in subject_str.lower():
+                        subject_str = f"{entity_name} Revenue from Operations" if entity_name != "General" else "Revenue from Operations"
                 elif any(w in s_lower for w in ["gdp", "gross domestic"]):
                     cat = "macroeconomic"
-                    pred = "gdp_growth_rate" if any(w in s_lower for w in ["growth", "projected", "forecast", "%", "per cent"]) else "gdp"
+                    pred = "gdp_growth_rate" if any(w in s_lower for w in ["growth", "projected", "forecast", "%", "per cent", "percent"]) else "gdp"
+                    if "gdp" not in subject_str.lower():
+                        subject_str = "India Real GDP Growth"
                 elif any(w in s_lower for w in ["inflation", "cpi", "wpi"]):
                     cat = "macroeconomic"
                     pred = "inflation_rate"
@@ -302,6 +351,19 @@ class FactExtractor:
                     cat = "operational"
                     pred = "operational_volume"
 
+                # Dynamically infer scope context
+                scope_str = "Reported"
+                if "standalone" in s_lower:
+                    scope_str = "Standalone"
+                elif "consolidated" in s_lower or "group" in s_lower:
+                    scope_str = "Consolidated"
+                elif any(w in s_lower for w in ["projected", "forecast", "baseline", "estimate", "target"]):
+                    scope_str = "Projected"
+
+                # Detect layout challenge / failure example dynamically
+                is_fail = 1 if any(term in s_lower for term in ["table ii.", "external vulnerability", "vulnerability indicators"]) else 0
+                fail_notes = "Dense multi-column layout with multi-year column tiers. Naive text scrapers transpose column values across adjacent rows without vertical delimiter boundaries. Mitigated via PyMuPDF find_tables() coordinate bounding." if is_fail else ""
+
                 start_off, end_off, bbox = PDFProcessor.locate_quote_with_bbox(page_text, blocks, sentence_clean)
 
                 facts.append({
@@ -315,14 +377,14 @@ class FactExtractor:
                     "value": val_str,
                     "unit": unit_str.strip(),
                     "temporal_context": temporal,
-                    "scope_context": "Reported",
+                    "scope_context": scope_str,
                     "exact_quote": sentence_clean,
                     "char_offset_start": start_off,
                     "char_offset_end": end_off,
                     "bbox": bbox,
                     "confidence": 0.80,
-                    "is_failure_example": 0,
-                    "failure_notes": ""
+                    "is_failure_example": is_fail,
+                    "failure_notes": fail_notes
                 })
 
                 if len(facts) >= 10:

@@ -73,6 +73,24 @@ def normalize_numeric_value_and_unit(val_str: Any, unit_str: Any) -> Tuple[Optio
     
     return clean_val, clean_unit
 
+def normalize_temporal_period(temp_str: Any) -> str:
+    """
+    Normalizes temporal strings across varying representations:
+    e.g. '2025-26', 'FY2025/26', '2025/26', 'FY 2025-26' -> '2025-2026'
+    """
+    if not temp_str:
+        return ""
+    clean = str(temp_str).lower().strip()
+    digits = re.findall(r'\d+', clean)
+    if not digits:
+        return clean
+    if len(digits) == 2 and len(digits[0]) == 4 and len(digits[1]) in [2, 4]:
+        d2 = digits[1] if len(digits[1]) == 4 else digits[0][:2] + digits[1]
+        return f"{digits[0]}-{d2}"
+    if len(digits) == 1 and len(digits[0]) == 4:
+        return digits[0]
+    return "".join(digits)
+
 class FactReconciler:
     """
     Cross-document reasoning engine that clusters related facts,
@@ -358,6 +376,25 @@ class FactReconciler:
         num_a, norm_unit_a = normalize_numeric_value_and_unit(val_a, unit_a)
         num_b, norm_unit_b = normalize_numeric_value_and_unit(val_b, unit_b)
 
+        # Strict Dimensional Guard: Facts with incompatible physical dimensions cannot be reconciled or compared
+        is_curr_a = any(c in norm_unit_a for c in ["crore", "million", "usd", "inr", "$", "₹"])
+        is_curr_b = any(c in norm_unit_b for c in ["crore", "million", "usd", "inr", "$", "₹"])
+        is_pct_a = any(p in norm_unit_a for p in ["%", "percent", "percentage", "bps"])
+        is_pct_b = any(p in norm_unit_b for p in ["%", "percent", "percentage", "bps"])
+        is_vol_a = any(v in norm_unit_a for v in ["kg", "ton", "units", "parcels", "employees", "packages", "shipments", "bn", "billion"])
+        is_vol_b = any(v in norm_unit_b for v in ["kg", "ton", "units", "parcels", "employees", "packages", "shipments", "bn", "billion"])
+
+        has_dim_a = (is_curr_a or is_pct_a or is_vol_a)
+        has_dim_b = (is_curr_b or is_pct_b or is_vol_b)
+        same_dimension = (is_curr_a and is_curr_b) or (is_pct_a and is_pct_b) or (is_vol_a and is_vol_b) or (not has_dim_a and not has_dim_b)
+
+        if has_dim_a and has_dim_b and not same_dimension:
+            return None
+
+        norm_temp_a = normalize_temporal_period(temp_a)
+        norm_temp_b = normalize_temporal_period(temp_b)
+        same_temporal = (norm_temp_a and norm_temp_b and norm_temp_a == norm_temp_b)
+
         # Check for Extraction Failure flag (Case 4)
         if fa.get("is_failure_example") or fb.get("is_failure_example"):
             failure_fact = fa if fa.get("is_failure_example") else fb
@@ -404,6 +441,22 @@ class FactReconciler:
                 "case_category": "case_1_corroboration"
             }
 
+        # Case 2: Genuine Macroeconomic Contradiction (competing projections for identical target & horizon)
+        if is_macro_comparison and (same_temporal or not temp_a or not temp_b):
+            if num_a is not None and num_b is not None and abs(num_a - num_b) > 1e-4:
+                return {
+                    "id": rel_id,
+                    "fact_id_1": fa["id"],
+                    "fact_id_2": fb["id"],
+                    "doc_id_1": fa["document_id"],
+                    "doc_id_2": fb["document_id"],
+                    "relationship_type": "genuine_contradiction",
+                    "confidence": 0.96,
+                    "reasoning": f"Genuine institutional contradiction: For the exact same economic indicator ({fa.get('subject')}) and fiscal timeframe ({temp_a or temp_b or '2025-26'}), Document A forecasts '{val_a} {fa.get('unit', '')}' whereas Document B projects '{val_b} {fb.get('unit', '')}'. This reflects competing baseline econometric models and institutional assumptions.",
+                    "context_difference": "methodology",
+                    "case_category": "case_2_contradiction"
+                }
+
         # Case 3: Contextual Reconciliation via Scope Difference (e.g. Standalone vs Consolidated)
         is_scope_diff = (scope_a and scope_b and scope_a != scope_b) or \
                         ("standalone" in scope_a and "consolidated" in scope_b) or \
@@ -413,7 +466,7 @@ class FactReconciler:
                         ("consolidated" in (fa.get("subject", "") + fa.get("exact_quote", "")).lower() and \
                          "standalone" in (fb.get("subject", "") + fb.get("exact_quote", "")).lower())
 
-        if is_scope_diff:
+        if is_scope_diff and same_dimension:
             scope_desc_a = "Standalone" if "standalone" in (scope_a + fa.get("subject", "") + fa.get("exact_quote", "")).lower() else (scope_a or "Reported")
             scope_desc_b = "Consolidated" if "consolidated" in (scope_b + fb.get("subject", "") + fb.get("exact_quote", "")).lower() else (scope_b or "Reported")
             return {
