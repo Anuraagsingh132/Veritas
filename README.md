@@ -1,7 +1,7 @@
 # Veritas • Fact Knowledge Layer
 
 > **Superjoin Engineering Intern | VIT 2026 Hiring Assignment**  
-> **Author:** Anurag Singh (VIT 2026)  
+> **Author:** Anuraag Singh (VIT 2026)  
 > **Repository:** [github.com/Anuraagsingh132/Veritas](https://github.com/Anuraagsingh132/Veritas)  
 > An autonomous fact discovery, verbatim evidence grounding, and cross-document epistemological reconciliation engine for unstructured PDF collections.
 
@@ -20,7 +20,7 @@
 - **Demo Video:** [Watch 3-Minute Walkthrough](https://youtu.be/placeholder-demo-link) *(≤ 3 minutes, public / unlisted; accessible to the Superjoin hiring team)*
 - **Demo Script & Storyboard:** [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md) contains my exact second-by-second narration cues and walkthrough sequence.
 - **Submission Form:** Submitted via [Superjoin Official Submission Form](https://forms.gle/3fLdBQ2D6Zm2Gqtv7)
-- **Candidate:** Anurag Singh (VIT 2026)
+- **Candidate:** Anuraag Singh (VIT 2026)
 
 In my 3-minute video, I demonstrate:
 1. **Live PDF Ingestion & Incremental Processing:** Dragging and dropping an arbitrary PDF into Veritas, extracting structured facts with spatial bounding coordinates, and performing incremental cross-document reconciliation without recomputing the entire knowledge base.
@@ -356,5 +356,5 @@ Add anything else you would like us to know:
 
 ---
 
-*Built with care by Anurag Singh for the Superjoin Engineering Team.*
+*Built with care by Anuraag Singh for the Superjoin Engineering Team.*
 
