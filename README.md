@@ -1,7 +1,7 @@
 # Veritas • Fact Knowledge Layer
 
 > **Superjoin Engineering Intern | VIT 2026 Hiring Assignment**  
-> **Author:** Anuraag Singh (VIT 2026)  
+> **Author:** Anuraag Kumar Singh (VIT 2026)  
 > **Repository:** [github.com/Anuraagsingh132/Veritas](https://github.com/Anuraagsingh132/Veritas)  
 > An autonomous fact discovery, verbatim evidence grounding, and cross-document epistemological reconciliation engine for unstructured PDF collections.
 
@@ -17,10 +17,10 @@
 
 ## 📺 Demo Video & Submission Details
 
-- **Demo Video:** [Watch 3-Minute Walkthrough](https://youtu.be/placeholder-demo-link) *(≤ 3 minutes, public / unlisted; accessible to the Superjoin hiring team)*
-- **Demo Script & Storyboard:** [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md) contains my exact second-by-second narration cues and walkthrough sequence.
+- **Demo Video:** [Watch 3-Minute Walkthrough]([https://youtu.be/placeholder-demo-link](https://drive.google.com/file/d/17u7gS9e5Yl9VICUFr8CxwHHP8DqgFEfk/view?usp=drive_link)) *(≤ 3 minutes, public / unlisted; accessible to the Superjoin hiring team)*
+- 
 - **Submission Form:** Submitted via [Superjoin Official Submission Form](https://forms.gle/3fLdBQ2D6Zm2Gqtv7)
-- **Candidate:** Anuraag Singh (VIT 2026)
+
 
 In my 3-minute video, I demonstrate:
 1. **Live PDF Ingestion & Incremental Processing:** Dragging and dropping an arbitrary PDF into Veritas, extracting structured facts with spatial bounding coordinates, and performing incremental cross-document reconciliation without recomputing the entire knowledge base.
@@ -329,18 +329,6 @@ If I had more time or was deploying Veritas into a full production cluster, here
 3. **Human-in-the-Loop Epistemological Feedback:**
    - Provide an interactive UI toggle allowing domain experts to accept, reject, or reclassify flagged contradictions, feeding back into few-shot reconciliation prompts.
 
----
-
-## 📝 Additional Notes
-
-Add anything else you would like us to know:
-
-- **Epistemic Integrity Over Cosmetic Visualizations:** The assignment noted that *"a graph database or visualization alone is not the solution. The interesting part is how facts are discovered, grounded, compared, and explained."* I intentionally prioritized verbatim source grounding, anti-hallucination substring guards, and multi-dimensional unit normalization over flashy but hollow node-link diagrams.
-- **Zero-Node Frictionless Evaluation:** Evaluators do not need to install Node.js, `npm`, or a frontend toolchain to run Veritas. The production React SPA is already pre-compiled into `frontend/dist/` and served directly by FastAPI at `http://127.0.0.1:8000`.
-- **Resource Footprint & Portability:** Veritas runs completely self-contained on SQLite with Write-Ahead Logging (WAL). There are no Docker dependencies, Redis containers, or external database servers to spin up. Ingestion uses streaming PyMuPDF iterators, keeping memory consumption below 50MB RAM even on 100+ page corporate filings.
-- **Security & Clean Git History:** Zero credentials, passwords, or personal API keys have been committed to this repository. All environment variables use `.env.example` templates, and PDF uploads are validated at the byte signature level (`%PDF-`) with prompt delimiter escaping.
-
----
 
 ## ⚖️ Submission Details & My Checklist
 
